@@ -31,13 +31,30 @@ class RefreshTokenRepository(Protocol):
     async def revoke_all(self, user_id: UUID) -> None: ...
 
 
+class Embedder(Protocol):
+    name: str
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
 class BrandRepository(Protocol):
     async def get_current(self) -> Brand | None: ...
     async def get(self, brand_id: UUID) -> Brand | None: ...
     async def save(self, brand: Brand) -> Brand: ...
-    async def replace_chunks(self, brand_id: UUID, chunks: Sequence[Chunk]) -> None: ...
+    async def replace_chunks(
+        self,
+        brand_id: UUID,
+        chunks: Sequence[Chunk],
+        embeddings: Sequence[Sequence[float]] | None = None,
+    ) -> None: ...
     async def list_chunks(self, brand_id: UUID) -> list[Chunk]: ...
-    async def search_chunks(self, brand_id: UUID, query: str, k: int = 4) -> list[Chunk]: ...
+    async def search_chunks(
+        self,
+        brand_id: UUID,
+        query: str,
+        k: int = 4,
+        query_embedding: Sequence[float] | None = None,
+    ) -> list[Chunk]: ...
 
 
 class AssetRepository(Protocol):
@@ -67,7 +84,14 @@ class CopyGenerator(Protocol):
 
 
 class VisionAuditor(Protocol):
-    async def audit(self, *, brand: Brand, image_name: str, image: bytes) -> AuditDraft: ...
+    async def audit(
+        self,
+        *,
+        brand: Brand,
+        image_name: str,
+        image: bytes,
+        context: Sequence[Chunk] = (),
+    ) -> AuditDraft: ...
 
 
 class UnitOfWork(Protocol):

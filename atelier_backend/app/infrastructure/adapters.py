@@ -70,7 +70,15 @@ class TemplateCopyGenerator:
 
 
 class TemplateVisionAuditor:
-    async def audit(self, *, brand: Brand, image_name: str, image: bytes) -> AuditDraft:
+    async def audit(
+        self,
+        *,
+        brand: Brand,
+        image_name: str,
+        image: bytes,
+        context: Sequence[Chunk] = (),
+    ) -> AuditDraft:
+        _ = context
         findings = (
             Finding(
                 n=1,

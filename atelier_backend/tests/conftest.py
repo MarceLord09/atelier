@@ -10,6 +10,9 @@ def make_client(tmp_path) -> TestClient:
         jwt_secret="test-secret-key-which-is-long-enough-32",
         environment="development",
         allow_self_assign_role=True,
+        llm_provider="template",
+        groq_api_key="",
+        gemini_api_key="",
     )
     return TestClient(create_app(settings))
 

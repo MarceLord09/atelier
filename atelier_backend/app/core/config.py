@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     database_url: str = "sqlite+aiosqlite:///./atelier.db"
     jwt_secret: str = "dev-only-change-me-use-a-long-random-secret"
+    groq_api_key: str = ""
+    groq_model: str = "qwen/qwen3.6-27b"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 15
     refresh_token_days: int = 7

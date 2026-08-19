@@ -10,6 +10,7 @@ from app.domain.ports import (
     BrandComposer,
     BrandRepository,
     CopyGenerator,
+    Embedder,
     UnitOfWork,
     VisionAuditor,
 )
@@ -21,10 +22,12 @@ class BrandService:
         *,
         brands: BrandRepository,
         composer: BrandComposer,
+        embedder: Embedder,
         uow: UnitOfWork,
     ) -> None:
         self._brands = brands
         self._composer = composer
+        self._embedder = embedder
         self._uow = uow
 
     async def compose(self, actor: User, brief: BrandBrief) -> Brand:
@@ -48,7 +51,9 @@ class BrandService:
             created_at=current.created_at if current else now,
         )
         saved = await self._brands.save(brand)
-        await self._brands.replace_chunks(saved.id, book.chunks)
+        texts = [f"{chunk.heading}\n{chunk.content}" for chunk in book.chunks]
+        embeddings = await self._embedder.embed(texts)
+        await self._brands.replace_chunks(saved.id, book.chunks, embeddings)
         await self._uow.commit()
         return saved
 
@@ -66,11 +71,13 @@ class CreativeService:
         brands: BrandRepository,
         assets: AssetRepository,
         generator: CopyGenerator,
+        embedder: Embedder,
         uow: UnitOfWork,
     ) -> None:
         self._brands = brands
         self._assets = assets
         self._generator = generator
+        self._embedder = embedder
         self._uow = uow
 
     async def generate(self, actor: User, *, kind: AssetKind, prompt: str) -> Asset:
@@ -80,7 +87,13 @@ class CreativeService:
                 "El motor creativo consulta el manual antes de escribir. Compón el DNA primero.",
                 code="manual_required",
             )
-        context = await self._brands.search_chunks(brand.id, prompt or brand.product)
+        query = prompt or brand.product
+        query_embedding = (await self._embedder.embed([query]))[0]
+        context = await self._brands.search_chunks(
+            brand.id,
+            query,
+            query_embedding=query_embedding,
+        )
         if not context:
             raise UnprocessableError(
                 "No hay fragmentos indexados del manual. Vuelve a componer el DNA.",
@@ -151,7 +164,13 @@ class GovernanceService:
             )
         if not image:
             raise UnprocessableError("La imagen está vacía.")
-        draft = await self._auditor.audit(brand=brand, image_name=image_name, image=image)
+        context = await self._brands.list_chunks(brand.id)
+        draft = await self._auditor.audit(
+            brand=brand,
+            image_name=image_name,
+            image=image,
+            context=context,
+        )
         record = Audit(
             id=uuid4(),
             brand_id=brand.id,

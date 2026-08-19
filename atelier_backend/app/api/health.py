@@ -12,6 +12,11 @@ def build_health_router(settings: Settings) -> APIRouter:
             "status": "ok",
             "service": "atelier_backend",
             "environment": settings.environment,
+            "llm": settings.llm_provider,
+            "model": settings.groq_model if settings.llm_provider == "live" else "template",
+            "vision": settings.gemini_model
+            if settings.llm_provider == "live" and settings.gemini_api_key
+            else "template",
         }
 
     return router

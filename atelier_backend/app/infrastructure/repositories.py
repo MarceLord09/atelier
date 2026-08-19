@@ -2,12 +2,13 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import delete, text
 from sqlmodel import select
-from sqlalchemy import delete
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.domain.entities import Asset, Audit, Brand, Chunk, Finding, User
 from app.domain.enums import AssetKind, AssetStatus, Role
+from app.infrastructure.embeddings import as_pgvector
 from app.infrastructure.models import (
     AssetRow,
     AuditRow,
@@ -144,37 +145,65 @@ class SqlBrandRepository:
         await self._session.flush()
         return _to_brand(row)
 
-    async def replace_chunks(self, brand_id: UUID, chunks: Sequence[Chunk]) -> None:
+    async def replace_chunks(
+        self,
+        brand_id: UUID,
+        chunks: Sequence[Chunk],
+        embeddings: Sequence[Sequence[float]] | None = None,
+    ) -> None:
         await self._session.exec(delete(ChunkRow).where(ChunkRow.brand_id == brand_id))
         now = datetime.now(UTC)
-        for chunk in chunks:
-            self._session.add(
-                ChunkRow(
-                    brand_id=brand_id,
-                    heading=chunk.heading,
-                    content=chunk.content,
-                    created_at=now,
-                )
+        postgres = _is_postgres(self._session)
+        for index, chunk in enumerate(chunks):
+            row = ChunkRow(
+                brand_id=brand_id,
+                heading=chunk.heading,
+                content=chunk.content,
+                created_at=now,
             )
+            self._session.add(row)
+            await self._session.flush()
+            if postgres and embeddings is not None:
+                await self._session.execute(
+                    text(
+                        "UPDATE brand_chunks SET embedding = CAST(:embedding AS vector) WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"embedding": as_pgvector(embeddings[index]), "id": str(row.id)},
+                )
 
     async def list_chunks(self, brand_id: UUID) -> list[Chunk]:
         result = await self._session.exec(select(ChunkRow).where(ChunkRow.brand_id == brand_id))
         return [Chunk(heading=row.heading, content=row.content) for row in result.all()]
 
-    async def search_chunks(self, brand_id: UUID, query: str, k: int = 4) -> list[Chunk]:
-        chunks = await self.list_chunks(brand_id)
-        if not chunks:
-            return []
-        terms = {term.lower() for term in query.split() if len(term) > 2}
-        if not terms:
-            return chunks[:k]
-
-        def score(chunk: Chunk) -> int:
-            haystack = f"{chunk.heading} {chunk.content}".lower()
-            return sum(1 for term in terms if term in haystack)
-
-        ranked = sorted(chunks, key=score, reverse=True)
-        return ranked[:k]
+    async def search_chunks(
+        self,
+        brand_id: UUID,
+        query: str,
+        k: int = 4,
+        query_embedding: Sequence[float] | None = None,
+    ) -> list[Chunk]:
+        if _is_postgres(self._session) and query_embedding is not None:
+            result = await self._session.execute(
+                text(
+                    """
+                    SELECT heading, content
+                    FROM brand_chunks
+                    WHERE brand_id = CAST(:brand_id AS uuid)
+                      AND embedding IS NOT NULL
+                    ORDER BY embedding <=> CAST(:query AS vector)
+                    LIMIT :k
+                    """
+                ),
+                {
+                    "brand_id": str(brand_id),
+                    "query": as_pgvector(query_embedding),
+                    "k": k,
+                },
+            )
+            rows = result.all()
+            if rows:
+                return [Chunk(heading=row[0], content=row[1]) for row in rows]
+        return _lexical_search(await self.list_chunks(brand_id), query, k)
 
 
 class SqlAssetRepository:
@@ -302,3 +331,22 @@ def _to_audit(row: AuditRow) -> Audit:
         created_at=row.created_at,
         image_name=row.image_name,
     )
+
+
+def _is_postgres(session: AsyncSession) -> bool:
+    bind = session.get_bind()
+    return bind is not None and bind.dialect.name == "postgresql"
+
+
+def _lexical_search(chunks: list[Chunk], query: str, k: int) -> list[Chunk]:
+    if not chunks:
+        return []
+    terms = {term.lower() for term in query.split() if len(term) > 2}
+    if not terms:
+        return chunks[:k]
+
+    def score(chunk: Chunk) -> int:
+        haystack = f"{chunk.heading} {chunk.content}".lower()
+        return sum(1 for term in terms if term in haystack)
+
+    return sorted(chunks, key=score, reverse=True)[:k]

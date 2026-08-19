@@ -9,6 +9,9 @@ from app.infrastructure.adapters import (
     TemplateCopyGenerator,
     TemplateVisionAuditor,
 )
+from app.infrastructure.embeddings import HashingEmbedder
+from app.infrastructure.gemini_vision import GeminiVisionAuditor
+from app.infrastructure.groq_llm import GroqBrandComposer, GroqClient, GroqCopyGenerator
 from app.infrastructure.repositories import (
     SqlAlchemyUnitOfWork,
     SqlAssetRepository,
@@ -28,9 +31,20 @@ class Container:
             algorithm=settings.jwt_algorithm,
             access_minutes=settings.access_token_minutes,
         )
-        self.composer = TemplateBrandComposer()
-        self.generator = TemplateCopyGenerator()
         self.auditor = TemplateVisionAuditor()
+        self.embedder = HashingEmbedder()
+        if settings.llm_provider == "live" and settings.groq_api_key:
+            groq = GroqClient(api_key=settings.groq_api_key, model=settings.groq_model)
+            self.composer = GroqBrandComposer(groq)
+            self.generator = GroqCopyGenerator(groq)
+        else:
+            self.composer = TemplateBrandComposer()
+            self.generator = TemplateCopyGenerator()
+        if settings.llm_provider == "live" and settings.gemini_api_key:
+            self.auditor = GeminiVisionAuditor(
+                api_key=settings.gemini_api_key,
+                model=settings.gemini_model,
+            )
 
     def auth_service(self, session: AsyncSession) -> AuthService:
         return AuthService(
@@ -48,6 +62,7 @@ class Container:
         return BrandService(
             brands=SqlBrandRepository(session),
             composer=self.composer,
+            embedder=self.embedder,
             uow=SqlAlchemyUnitOfWork(session),
         )
 
@@ -57,6 +72,7 @@ class Container:
             brands=brands,
             assets=SqlAssetRepository(session),
             generator=self.generator,
+            embedder=self.embedder,
             uow=SqlAlchemyUnitOfWork(session),
         )
 
