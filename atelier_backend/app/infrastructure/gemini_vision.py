@@ -8,6 +8,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.exceptions import UnprocessableError
+from app.core.observability import tracer
 from app.domain.entities import AuditDraft, Brand, Chunk, Finding
 from app.infrastructure.groq_llm import parse_json_object
 
@@ -68,77 +69,123 @@ class GeminiVisionAuditor:
             raise UnprocessableError("La imagen supera 8 MB.")
         mime = sniff_mime(image)
         encoded = base64.standard_b64encode(image).decode("ascii")
-        response = await self._http.post(
-            GEMINI_URL.format(model=self.model),
-            headers={
-                "x-goog-api-key": self._api_key,
-                "Content-Type": "application/json",
+        with tracer.observation(
+            "score-visual",
+            as_type="generation",
+            model=self.model,
+            input={
+                "image_name": image_name,
+                "brand": brand.name,
+                "mime": mime,
+                "bytes": len(image),
+                "chunk_headings": [chunk.heading for chunk in context],
             },
-            json={
-                "systemInstruction": {
-                    "parts": [
-                        {
-                            "text": (
-                                "Eres auditor visual de una content suite. "
-                                "ATELIER es la plataforma, NUNCA la marca a contrastar. "
-                                "La única marca válida es el nombre del manual que te pasan. "
-                                "Lees el texto visible. Español. JSON único."
-                            )
-                        }
-                    ]
+            metadata={"provider": "gemini", "image_omitted": True},
+        ) as generation:
+            response = await self._http.post(
+                GEMINI_URL.format(model=self.model),
+                headers={
+                    "x-goog-api-key": self._api_key,
+                    "Content-Type": "application/json",
                 },
-                "contents": [
-                    {
+                json={
+                    "systemInstruction": {
                         "parts": [
-                            {"inline_data": {"mime_type": mime, "data": encoded}},
-                            {"text": _audit_prompt(brand, image_name, context)},
+                            {
+                                "text": (
+                                    "Eres auditor visual de una content suite. "
+                                    "ATELIER es la plataforma, NUNCA la marca a contrastar. "
+                                    "La única marca válida es el nombre del manual que te pasan. "
+                                    "Lees el texto visible. Español. JSON único."
+                                )
+                            }
                         ]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.2,
-                    "responseMimeType": "application/json",
-                    "responseSchema": RESPONSE_SCHEMA,
+                    },
+                    "contents": [
+                        {
+                            "parts": [
+                                {"inline_data": {"mime_type": mime, "data": encoded}},
+                                {"text": _audit_prompt(brand, image_name, context)},
+                            ]
+                        }
+                    ],
+                    "generationConfig": {
+                        "temperature": 0.2,
+                        "responseMimeType": "application/json",
+                        "responseSchema": RESPONSE_SCHEMA,
+                    },
                 },
-            },
-        )
-        if response.status_code >= 400:
-            raise _gemini_error(response)
-        try:
-            text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise UnprocessableError("Gemini devolvió una respuesta vacía.", code="vision_error") from exc
-        payload = parse_json_object(text)
-        try:
-            draft = AuditPayload.model_validate(payload)
-        except ValidationError as exc:
-            raise UnprocessableError("Gemini no devolvió un dictamen usable.", code="vision_schema") from exc
-        findings = tuple(
-            _correct_name_finding(
-                Finding(
-                    n=index,
-                    title=item.title.strip(),
-                    detail=item.detail.strip(),
-                    rule=item.rule.strip(),
-                    ok=item.ok,
-                ),
-                brand,
             )
-            for index, item in enumerate(draft.findings, start=1)
-        )
-        passed = all(item.ok for item in findings) if findings else False
-        if not findings:
-            findings = (
-                Finding(
-                    n=1,
-                    title="Sin contraste usable",
-                    detail=f"El modelo no desglosó reglas contra {brand.name}.",
-                    rule="Regla 01 · DNA",
-                    ok=False,
-                ),
+            if response.status_code >= 400:
+                raise _gemini_error(response)
+            payload = response.json()
+            try:
+                text = payload["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise UnprocessableError(
+                    "Gemini devolvió una respuesta vacía.",
+                    code="vision_error",
+                ) from exc
+            parsed = parse_json_object(text)
+            try:
+                draft = AuditPayload.model_validate(parsed)
+            except ValidationError as exc:
+                raise UnprocessableError(
+                    "Gemini no devolvió un dictamen usable.",
+                    code="vision_schema",
+                ) from exc
+            findings = tuple(
+                _correct_name_finding(
+                    Finding(
+                        n=index,
+                        title=item.title.strip(),
+                        detail=item.detail.strip(),
+                        rule=item.rule.strip(),
+                        ok=item.ok,
+                    ),
+                    brand,
+                )
+                for index, item in enumerate(draft.findings, start=1)
             )
-            passed = False
-        return AuditDraft(passed=passed, findings=findings, model=self.model)
+            passed = all(item.ok for item in findings) if findings else False
+            if not findings:
+                findings = (
+                    Finding(
+                        n=1,
+                        title="Sin contraste usable",
+                        detail=f"El modelo no desglosó reglas contra {brand.name}.",
+                        rule="Regla 01 · DNA",
+                        ok=False,
+                    ),
+                )
+                passed = False
+            update: dict = {
+                "output": {
+                    "passed": passed,
+                    "findings": [item.title for item in findings],
+                }
+            }
+            usage = _gemini_usage(payload)
+            if usage:
+                update["usage_details"] = usage
+            generation.update(**update)
+            return AuditDraft(passed=passed, findings=findings, model=self.model)
+
+
+def _gemini_usage(payload: object) -> dict[str, int]:
+    if not isinstance(payload, dict):
+        return {}
+    usage = payload.get("usageMetadata")
+    if not isinstance(usage, dict):
+        return {}
+    details: dict[str, int] = {}
+    prompt = usage.get("promptTokenCount")
+    completion = usage.get("candidatesTokenCount")
+    if isinstance(prompt, int):
+        details["input_tokens"] = prompt
+    if isinstance(completion, int):
+        details["output_tokens"] = completion
+    return details
 
 
 def sniff_mime(image: bytes) -> str:

@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrandBookSkeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -12,6 +14,15 @@ import { brandsApi } from '@/lib/infrastructure/api/brands'
 
 const TONES = ['cercano', 'sobrio', 'profesional', 'irreverente']
 
+const EMPTY_BRIEF = {
+  name: '',
+  product: '',
+  audience: '',
+  tone: 'cercano',
+  promise: '',
+  forbidden: '',
+}
+
 const DEFAULT_BRIEF = {
   name: 'Kiwicha Viva',
   product: 'Crocante de kiwicha con cacao',
@@ -21,7 +32,17 @@ const DEFAULT_BRIEF = {
   forbidden: 'milagroso, superalimento',
 }
 
-function BrandBook({ brand, loading, compose }: { brand: Brand | null; loading: boolean; compose: () => void }) {
+function BrandBook({
+  brand,
+  loading,
+  compose,
+  canCompose,
+}: {
+  brand: Brand | null
+  loading: boolean
+  compose: () => void
+  canCompose: boolean
+}) {
   const [first, rest] = splitHeading(brand?.name ?? '')
   const status = loading ? '● COMPONIENDO' : brand?.indexed ? '● MANUAL ACTIVO' : '○ SIN MANUAL'
   return (
@@ -44,7 +65,7 @@ function BrandBook({ brand, loading, compose }: { brand: Brand | null; loading: 
           <span className="page-number">00</span>
           <h2>El manual<br />se escribe aquí.</h2>
           <p>Compón el DNA para abrir el libro y activar la marca.</p>
-          <Button onClick={compose}>Componer manual</Button>
+          <Button onClick={compose} disabled={!canCompose}>Componer manual</Button>
         </div>
       ) : (
         <div className="book-pages">
@@ -92,27 +113,61 @@ function BrandBook({ brand, loading, compose }: { brand: Brand | null; loading: 
   )
 }
 
+function fillFromBrand(brand: Brand) {
+  return {
+    name: brand.name,
+    product: brand.product,
+    audience: brand.audience,
+    tone: brand.tone,
+    promise: brand.promise,
+    forbidden: brand.forbidden.join(', '),
+  }
+}
+
 export function DnaStage() {
   const { brand, loading: hydrating, setBrand, setBusy, refresh } = useBrand()
-  const [product, setProduct] = useState(brand?.product ?? DEFAULT_BRIEF.product)
-  const [audience, setAudience] = useState(brand?.audience ?? DEFAULT_BRIEF.audience)
-  const [tone, setTone] = useState(brand?.tone ?? DEFAULT_BRIEF.tone)
-  const [promise, setPromise] = useState(brand?.promise ?? DEFAULT_BRIEF.promise)
-  const [forbidden, setForbidden] = useState(brand?.forbidden.join(', ') ?? DEFAULT_BRIEF.forbidden)
-  const [name, setName] = useState(brand?.name ?? DEFAULT_BRIEF.name)
+  const router = useRouter()
+  const params = useSearchParams()
+  const nameRef = useRef<HTMLInputElement>(null)
+  const seed = brand ? fillFromBrand(brand) : DEFAULT_BRIEF
+  const [product, setProduct] = useState(seed.product)
+  const [audience, setAudience] = useState(seed.audience)
+  const [tone, setTone] = useState(seed.tone)
+  const [promise, setPromise] = useState(seed.promise)
+  const [forbidden, setForbidden] = useState(seed.forbidden)
+  const [name, setName] = useState(seed.name)
+  const [drafting, setDrafting] = useState(false)
   const [composing, setComposing] = useState(false)
   const [error, setError] = useState('')
   const loading = hydrating || composing
+  const creatingNew = drafting || (!brand && !hydrating)
+
+  const applyBrief = (brief: typeof EMPTY_BRIEF) => {
+    setName(brief.name)
+    setProduct(brief.product)
+    setAudience(brief.audience)
+    setTone(brief.tone)
+    setPromise(brief.promise)
+    setForbidden(brief.forbidden)
+  }
+
+  const startNew = useCallback(() => {
+    setDrafting(true)
+    setError('')
+    applyBrief(EMPTY_BRIEF)
+    window.setTimeout(() => nameRef.current?.focus(), 0)
+  }, [])
 
   useEffect(() => {
-    if (!brand) return
-    setName(brand.name)
-    setProduct(brand.product)
-    setAudience(brand.audience)
-    setTone(brand.tone)
-    setPromise(brand.promise)
-    setForbidden(brand.forbidden.join(', '))
-  }, [brand])
+    if (!brand || drafting) return
+    applyBrief(fillFromBrand(brand))
+  }, [brand, drafting])
+
+  useEffect(() => {
+    if (params.get('nuevo') !== '1') return
+    startNew()
+    router.replace('/dna')
+  }, [params, router, startNew])
 
   const compose = async () => {
     setError('')
@@ -127,6 +182,7 @@ export function DnaStage() {
         promise,
         forbidden: forbidden.split(',').map((word) => word.trim()).filter(Boolean),
       })
+      setDrafting(false)
       setBrand(next)
       await refresh()
     } catch (err) {
@@ -146,20 +202,39 @@ export function DnaStage() {
             <h1>Arquitecta de marca</h1>
             <p>Convierte una intuición en un sistema que todos puedan usar.</p>
           </div>
+          <Button variant="outline" onClick={startNew} disabled={loading || drafting} className="new-brand-btn">
+            <Plus size={14} strokeWidth={2} /> Nueva marca
+          </Button>
         </div>
         <section className="brief">
-          <Label>BRIEF DE MARCA</Label>
+          <Label>{drafting ? 'BRIEF NUEVO' : 'BRIEF DE MARCA'}</Label>
+          {drafting && (
+            <p className="login-foot">Campos en blanco. Al componer se crea otra marca y el masthead cambia al DNA nuevo.</p>
+          )}
           <div className="form-field">
             <label>Nombre de marca</label>
-            <input value={name} onChange={(event) => setName(event.target.value)} />
+            <input
+              ref={nameRef}
+              value={name}
+              placeholder="Ej. Blanca Flor"
+              onChange={(event) => setName(event.target.value)}
+            />
           </div>
           <div className="form-field">
             <label>Producto / concepto</label>
-            <input value={product} onChange={(event) => setProduct(event.target.value)} />
+            <input
+              value={product}
+              placeholder="Ej. panetones premium con pasas y frutas"
+              onChange={(event) => setProduct(event.target.value)}
+            />
           </div>
           <div className="form-field">
             <label>Audiencia</label>
-            <input value={audience} onChange={(event) => setAudience(event.target.value)} />
+            <input
+              value={audience}
+              placeholder="Quién va a usar o comprar esto"
+              onChange={(event) => setAudience(event.target.value)}
+            />
           </div>
           <div className="form-field">
             <label>Tono</label>
@@ -171,27 +246,58 @@ export function DnaStage() {
           </div>
           <div className="form-field">
             <label>Promesa</label>
-            <textarea value={promise} onChange={(event) => setPromise(event.target.value)} />
+            <textarea
+              value={promise}
+              placeholder="La promesa que el copy puede repetir"
+              onChange={(event) => setPromise(event.target.value)}
+            />
           </div>
           <div className="form-field">
             <label>Lo que NUNCA debe decirse</label>
-            <input value={forbidden} onChange={(event) => setForbidden(event.target.value)} />
+            <input
+              value={forbidden}
+              placeholder="harina, horneado"
+              onChange={(event) => setForbidden(event.target.value)}
+            />
           </div>
           {error && <p className="form-error">{error}</p>}
-          {brand?.kit_complete && (
+          {brand?.kit_complete && !drafting && (
             <p className="login-foot">
-              Este DNA ya tiene ficha, guion y prompt aprobados. Si cambias el nombre, se crea otra marca y la cola no se mezcla.
+              Este DNA ya tiene ficha, guion y prompt aprobados. Usa Nueva marca para no sobrescribirlo.
             </p>
           )}
-          <Button onClick={() => void compose()} disabled={loading}>
-            {brand && name.trim().toLocaleLowerCase() !== brand.name.toLocaleLowerCase()
-              ? 'Crear nueva marca'
-              : 'Componer manual'}{' '}
-            <span>→</span>
-          </Button>
+          <div className="brief-actions">
+            {drafting && brand ? (
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  setDrafting(false)
+                  applyBrief(fillFromBrand(brand))
+                  setError('')
+                }}
+                disabled={loading}
+              >
+                Cancelar
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => void compose()}
+              disabled={loading || !name.trim() || !product.trim() || !audience.trim() || !promise.trim()}
+            >
+              {creatingNew || (brand && name.trim().toLocaleLowerCase() !== brand.name.toLocaleLowerCase())
+                ? 'Componer nueva marca'
+                : 'Componer manual'}{' '}
+              <span>→</span>
+            </Button>
+          </div>
         </section>
       </div>
-      <BrandBook brand={brand} loading={loading} compose={() => void compose()} />
+      <BrandBook
+        brand={drafting ? null : brand}
+        loading={loading}
+        compose={() => void compose()}
+        canCompose={!loading && Boolean(name.trim() && product.trim() && audience.trim() && promise.trim())}
+      />
     </div>
   )
 }

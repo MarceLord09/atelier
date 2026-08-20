@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, CircleHelp, LogOut, Settings } from 'lucide-react'
+import { ChevronDown, CircleHelp, LogOut, Plus, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -14,15 +14,20 @@ import type { User } from '@/lib/domain/user'
 function BrandSwitcher({
   brand,
   brands,
+  canCreate,
   onSelect,
+  onCreate,
 }: {
   brand: Brand
   brands: Brand[]
+  canCreate: boolean
   onSelect: (brandId: string) => Promise<void>
+  onCreate: () => void
 }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
   const canSwitch = brands.length > 1
+  const canOpen = canSwitch || canCreate
 
   useEffect(() => {
     if (!open) return
@@ -45,9 +50,9 @@ function BrandSwitcher({
       <button
         type="button"
         className="brand-chip"
-        aria-haspopup={canSwitch ? 'listbox' : undefined}
-        aria-expanded={canSwitch ? open : undefined}
-        onClick={() => canSwitch && setOpen((value) => !value)}
+        aria-haspopup={canOpen ? 'listbox' : undefined}
+        aria-expanded={canOpen ? open : undefined}
+        onClick={() => canOpen && setOpen((value) => !value)}
       >
         <span className="brand-mark">{brandInitials(brand.name)}</span>
         <span className="current-brand">{brand.name}</span>
@@ -55,7 +60,7 @@ function BrandSwitcher({
           {brand.colors.map((color) => <i key={color} style={{ background: color }} />)}
         </span>
         <span className="rag"><span /> RAG</span>
-        {canSwitch && <ChevronDown size={14} strokeWidth={1.75} className={open ? 'profile-caret is-open' : 'profile-caret'} />}
+        {canOpen && <ChevronDown size={14} strokeWidth={1.75} className={open ? 'profile-caret is-open' : 'profile-caret'} />}
       </button>
       {open && (
         <div className="brand-menu" role="listbox">
@@ -76,10 +81,26 @@ function BrandSwitcher({
                 <strong>{item.name}</strong>
                 <small>{item.kit_complete ? 'Kit aprobado' : 'DNA activo'}</small>
               </span>
-            </button>
-          ))}
-        </div>
-      )}
+              </button>
+            ))}
+            {canCreate && (
+              <button
+                type="button"
+                className="new-brand"
+                onClick={() => {
+                  setOpen(false)
+                  onCreate()
+                }}
+              >
+                <Plus size={14} strokeWidth={2} />
+                <span>
+                  <strong>Nueva marca</strong>
+                  <small>Vaciar el brief y componer otro DNA</small>
+                </span>
+              </button>
+            )}
+          </div>
+        )}
     </div>
   )
 }
@@ -139,8 +160,14 @@ function ProfileMenu({ user, logout }: { user: User; logout: () => Promise<void>
 export function Masthead({ homeHref }: { homeHref: string }) {
   const { user, logout } = useAuth()
   const { brand, brands, loading, busy, select } = useBrand()
+  const router = useRouter()
   const pending = loading || busy
   const indexed = Boolean(brand?.indexed)
+  const canCreate = user?.role === 'CREATOR'
+
+  const startNewBrand = () => {
+    router.push('/dna?nuevo=1')
+  }
 
   return (
     <header className="masthead">
@@ -150,7 +177,13 @@ export function Masthead({ homeHref }: { homeHref: string }) {
           <span className="current-brand">{busy ? 'Componiendo el manual…' : 'Abriendo marca…'}</span>
         </div>
       ) : indexed && brand ? (
-        <BrandSwitcher brand={brand} brands={brands} onSelect={select} />
+        <BrandSwitcher
+          brand={brand}
+          brands={brands}
+          canCreate={canCreate}
+          onSelect={select}
+          onCreate={startNewBrand}
+        />
       ) : <div className="masthead-slot" aria-hidden="true" />}
       {user ? <ProfileMenu user={user} logout={logout} /> : <div className="masthead-note">CPG / 2026</div>}
     </header>

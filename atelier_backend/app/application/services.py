@@ -42,7 +42,12 @@ class BrandService:
         self._uow = uow
 
     async def compose(self, actor: User, brief: BrandBrief) -> Brand:
-        with tracer.span("brand.compose", product=brief.product, tone=brief.tone) as span:
+        with tracer.trace(
+            "compose-brand",
+            user_id=actor.email,
+            tags=["dna"],
+            input={"product": brief.product, "audience": brief.audience, "tone": brief.tone},
+        ) as root:
             book = await self._composer.compose(brief)
             current = await self._brands.get_current()
             now = datetime.now(UTC)
@@ -68,20 +73,30 @@ class BrandService:
             )
             saved = await self._brands.save(brand)
             texts = [f"{chunk.heading}\n{chunk.content}" for chunk in book.chunks]
-            embeddings = await self._embedder.embed(texts)
+            headings = [chunk.heading for chunk in book.chunks]
+            with tracer.observation(
+                "embed-chunks",
+                as_type="embedding",
+                model=self._embedder.name,
+                input={"count": len(texts), "headings": headings},
+            ) as embed_obs:
+                embeddings = await self._embedder.embed(texts)
+                embed_obs.update(
+                    output={
+                        "count": len(embeddings),
+                        "dimensions": len(embeddings[0]) if embeddings else 0,
+                    }
+                )
             await self._brands.replace_chunks(saved.id, book.chunks, embeddings)
             await self._uow.commit()
-            span.update(
-                input={"product": brief.product, "audience": brief.audience, "tone": brief.tone},
+            root.update(
                 output={
                     "brand": saved.name,
-                    "chunks": [chunk.heading for chunk in book.chunks],
+                    "chunks": headings,
                     "embedder": self._embedder.name,
                     "replaced": reuse,
-                },
-                metadata={"duration_ms": span.duration_ms, "user": str(actor.id)},
+                }
             )
-            tracer.flush()
             return saved
 
     async def current(self) -> Brand:
@@ -125,7 +140,12 @@ class CreativeService:
         self._uow = uow
 
     async def generate(self, actor: User, *, kind: AssetKind, prompt: str) -> Asset:
-        with tracer.span("creative.generate", kind=kind.value) as span:
+        with tracer.trace(
+            "generate-copy",
+            user_id=actor.email,
+            tags=["prensa"],
+            input={"kind": kind.value, "prompt": prompt[:200]},
+        ) as root:
             brand = await self._brands.get_current()
             if brand is None or brand.indexed_at is None:
                 raise UnprocessableError(
@@ -133,12 +153,30 @@ class CreativeService:
                     code="manual_required",
                 )
             query = prompt or brand.product
-            query_embedding = (await self._embedder.embed([query]))[0]
-            context = await self._brands.search_chunks(
-                brand.id,
-                query,
-                query_embedding=query_embedding,
-            )
+            with tracer.observation(
+                "embed-query",
+                as_type="embedding",
+                model=self._embedder.name,
+                input={"chars": len(query)},
+            ) as embed_obs:
+                query_embedding = (await self._embedder.embed([query]))[0]
+                embed_obs.update(output={"dimensions": len(query_embedding)})
+            with tracer.observation(
+                "retrieve-context",
+                as_type="retriever",
+                input={"query": query[:200], "brand": brand.name},
+            ) as retrieve_obs:
+                context = await self._brands.search_chunks(
+                    brand.id,
+                    query,
+                    query_embedding=query_embedding,
+                )
+                retrieve_obs.update(
+                    output={
+                        "count": len(context),
+                        "headings": [chunk.heading for chunk in context],
+                    }
+                )
             if not context:
                 raise UnprocessableError(
                     "No hay fragmentos indexados del manual. Vuelve a componer el DNA.",
@@ -165,20 +203,13 @@ class CreativeService:
             )
             saved = await self._assets.add(asset)
             await self._uow.commit()
-            span.update(
-                input={"kind": kind.value, "prompt": prompt, "query": query},
+            root.update(
                 output={
                     "title": copy.title,
                     "model": copy.model,
                     "citations": list(citations),
-                },
-                metadata={
-                    "duration_ms": span.duration_ms,
-                    "retrieved": [chunk.heading for chunk in context],
-                    "embedder": self._embedder.name,
-                },
+                }
             )
-            tracer.flush()
             return saved
 
     async def list_assets(self, *, status: AssetStatus | None = None) -> list[Asset]:
@@ -222,7 +253,12 @@ class GovernanceService:
         return updated
 
     async def audit(self, actor: User, *, image_name: str, image: bytes) -> Audit:
-        with tracer.span("governance.audit", image_name=image_name) as span:
+        with tracer.trace(
+            "audit-image",
+            user_id=actor.email,
+            tags=["vision"],
+            input={"image_name": image_name, "bytes": len(image)},
+        ) as root:
             brand = await self._brands.get_current()
             if brand is None or brand.indexed_at is None:
                 raise UnprocessableError(
@@ -231,7 +267,18 @@ class GovernanceService:
                 )
             if not image:
                 raise UnprocessableError("La imagen está vacía.")
-            context = await self._brands.list_chunks(brand.id)
+            with tracer.observation(
+                "retrieve-manual",
+                as_type="retriever",
+                input={"brand": brand.name},
+            ) as retrieve_obs:
+                context = await self._brands.list_chunks(brand.id)
+                retrieve_obs.update(
+                    output={
+                        "count": len(context),
+                        "headings": [chunk.heading for chunk in context],
+                    }
+                )
             draft = await self._auditor.audit(
                 brand=brand,
                 image_name=image_name,
@@ -250,17 +297,11 @@ class GovernanceService:
             )
             saved = await self._audits.add(record)
             await self._uow.commit()
-            span.update(
-                input={"image_name": image_name, "bytes": len(image), "brand": brand.name},
+            root.update(
                 output={
                     "passed": draft.passed,
                     "findings": [finding.title for finding in draft.findings],
                     "model": draft.model,
-                },
-                metadata={
-                    "duration_ms": span.duration_ms,
-                    "manual_chunks": [chunk.heading for chunk in context],
-                },
+                }
             )
-            tracer.flush()
             return saved

@@ -12,6 +12,7 @@ Repo: [github.com/MarceLord09/atelier](https://github.com/MarceLord09/atelier)
 |---|---|
 | App | [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev) |
 | API / health | [https://atelier-alicorp-api.onrender.com/health](https://atelier-alicorp-api.onrender.com/health) |
+| Langfuse | [https://cloud.langfuse.com/project/cmt0xs6ea0av7ad0iyz46vc9w](https://cloud.langfuse.com/project/cmt0xs6ea0av7ad0iyz46vc9w) |
 
 Render se duerme a los 15 min: abre `/health` 1–2 min antes de entrar.
 
@@ -23,7 +24,7 @@ Render se duerme a los 15 min: abre `/health` 1–2 min antes de entrar.
 | II · Creative Engine | `/prensa` · ficha, guion, prompt de imagen | Creador |
 | III · Gobernanza | `/mesa` Pendiente → Aprobado / Rechazado | Aprobador A |
 | III · Auditoría multimodal | `/vision` · Gemini contra el mismo DNA | Aprobador B |
-| IV · Observabilidad | Langfuse: `brand.compose`, `creative.generate`, `governance.audit` | — |
+| IV · Observabilidad | Langfuse: `compose-brand`, `generate-copy`, `audit-image` (generation / retriever / embedding) | — |
 
 Stack pedido: FastAPI + Next.js + GitHub + Supabase + Groq (texto) + Gemini (visión) + Langfuse.
 
@@ -41,7 +42,7 @@ Contraseña de las tres cuentas: **`Atelier2026!`**
 2. En **Prensa** genera ficha, guion y prompt de imagen. Cada pieza cita fragmentos del manual y queda `PENDING`.
 3. **Mateo** abre Mesa, ve solo la marca activa, aprueba o rechaza.
 4. **Inés** arrastra un packshot. Gemini contrasta nombre, paleta, voz y área de respeto contra el DNA. PASA / NO PASA con desglose.
-5. En [Langfuse](https://cloud.langfuse.com) aparecen las tres trazas.
+5. En [Langfuse](https://cloud.langfuse.com/project/cmt0xs6ea0av7ad0iyz46vc9w) las tres trazas quedan públicas (se abren sin login).
 
 Varias marcas: si el nombre del DNA cambia, se crea otra marca. El chip del masthead cambia de marca y Mesa no mezcla colas. El kit (ficha + guion + prompt) aprobado queda con su DNA.
 

@@ -8,6 +8,7 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core.exceptions import UnprocessableError
+from app.core.observability import clip_text, tracer
 from app.domain.entities import Brand, BrandBook, BrandBrief, Chunk, GeneratedCopy
 from app.domain.enums import AssetKind
 from app.infrastructure.adapters import DEFAULT_COLORS, TemplateBrandComposer, _title_from
@@ -22,10 +23,26 @@ class GroqClient:
         self._api_key = api_key
         self._http = httpx.AsyncClient(timeout=45.0)
 
-    async def complete_json(self, *, system: str, user: str) -> dict:
-        payload = await self._chat(system=system, user=user, json_mode=True)
+    async def complete_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        generation_name: str = "call-groq",
+    ) -> dict:
+        payload = await self._chat(
+            system=system,
+            user=user,
+            json_mode=True,
+            generation_name=generation_name,
+        )
         if payload is None:
-            payload = await self._chat(system=system, user=user, json_mode=False)
+            payload = await self._chat(
+                system=system,
+                user=user,
+                json_mode=False,
+                generation_name=generation_name,
+            )
         try:
             content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -34,44 +51,78 @@ class GroqClient:
             raise UnprocessableError("Groq devolvió una respuesta vacía.", code="llm_error")
         return parse_json_object(content)
 
-    async def _chat(self, *, system: str, user: str, json_mode: bool) -> dict | None:
-        body: dict = {
-            "model": self.model,
-            "temperature": 0.35,
-            "reasoning_effort": "none",
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
+    async def _chat(
+        self,
+        *,
+        system: str,
+        user: str,
+        json_mode: bool,
+        generation_name: str,
+    ) -> dict | None:
+        with tracer.observation(
+            generation_name,
+            as_type="generation",
+            model=self.model,
+            input=[
+                {"role": "system", "content": clip_text(system, 500)},
+                {"role": "user", "content": clip_text(user, 800)},
             ],
-        }
-        if json_mode:
-            body["response_format"] = {"type": "json_object"}
-        response = await self._http.post(
-            GROQ_CHAT_URL,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-        )
-        if response.status_code == 401:
-            raise UnprocessableError(
-                "Groq rechazó la API key. Revisa GROQ_API_KEY.",
-                code="llm_auth",
+            metadata={"provider": "groq", "json_mode": json_mode},
+        ) as generation:
+            body: dict = {
+                "model": self.model,
+                "temperature": 0.35,
+                "reasoning_effort": "none",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            }
+            if json_mode:
+                body["response_format"] = {"type": "json_object"}
+            response = await self._http.post(
+                GROQ_CHAT_URL,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
             )
-        if response.status_code == 429:
-            raise UnprocessableError(
-                "Groq alcanzó el límite de uso. Espera un momento e intenta de nuevo.",
-                code="llm_rate_limit",
-            )
-        if response.status_code >= 400:
-            if json_mode and _is_json_validate_error(response):
-                return None
-            raise UnprocessableError(
-                "Groq no pudo generar el texto. Intenta de nuevo.",
-                code="llm_error",
-            )
-        return response.json()
+            if response.status_code == 401:
+                raise UnprocessableError(
+                    "Groq rechazó la API key. Revisa GROQ_API_KEY.",
+                    code="llm_auth",
+                )
+            if response.status_code == 429:
+                raise UnprocessableError(
+                    "Groq alcanzó el límite de uso. Espera un momento e intenta de nuevo.",
+                    code="llm_rate_limit",
+                )
+            if response.status_code >= 400:
+                if json_mode and _is_json_validate_error(response):
+                    generation.update(
+                        output={"fallback": "json_validate_failed"},
+                        level="WARNING",
+                    )
+                    return None
+                raise UnprocessableError(
+                    "Groq no pudo generar el texto. Intenta de nuevo.",
+                    code="llm_error",
+                )
+            payload = response.json()
+            content = ""
+            try:
+                content = payload["choices"][0]["message"]["content"] or ""
+            except (KeyError, IndexError, TypeError):
+                content = ""
+            update: dict = {
+                "output": clip_text(str(content), 800),
+            }
+            usage = _groq_usage(payload)
+            if usage:
+                update["usage_details"] = usage
+            generation.update(**update)
+            return payload
 
 
 def _is_json_validate_error(response: httpx.Response) -> bool:
@@ -83,6 +134,22 @@ def _is_json_validate_error(response: httpx.Response) -> bool:
     if not isinstance(error, dict):
         return False
     return error.get("code") == "json_validate_failed"
+
+
+def _groq_usage(payload: object) -> dict[str, int]:
+    if not isinstance(payload, dict):
+        return {}
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    details: dict[str, int] = {}
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    if isinstance(prompt, int):
+        details["input_tokens"] = prompt
+    if isinstance(completion, int):
+        details["output_tokens"] = completion
+    return details
 
 
 def _clip(value: object, max_len: int) -> object:
@@ -163,6 +230,7 @@ class GroqBrandComposer:
                 "Escribes en español, tono cercano, sin promesas médicas ni absolutas."
             ),
             user=_compose_prompt(brief),
+            generation_name="compose-dna",
         )
         try:
             draft = BookDraft.model_validate(payload)
@@ -223,6 +291,7 @@ class GroqCopyGenerator:
                 ),
                 user=_generate_prompt(kind=kind, brand=brand, context=context, prompt=prompt)
                 + extra,
+                generation_name="write-copy",
             )
             try:
                 draft = CopyDraft.model_validate(payload)
