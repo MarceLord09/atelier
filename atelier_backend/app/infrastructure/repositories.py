@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
