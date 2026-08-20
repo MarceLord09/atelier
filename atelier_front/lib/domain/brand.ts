@@ -12,6 +12,8 @@ export type Brand = {
   voice_dont: string[]
   indexed: boolean
   created_at: string
+  kit_complete?: boolean
+  current?: boolean
 }
 
 export type BrandBrief = {

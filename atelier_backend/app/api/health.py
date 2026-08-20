@@ -17,6 +17,7 @@ def build_health_router(settings: Settings) -> APIRouter:
             "vision": settings.gemini_model
             if settings.llm_provider == "live" and settings.gemini_api_key
             else "template",
+            "langfuse": "on" if settings.langfuse_enabled else "off",
         }
 
     return router

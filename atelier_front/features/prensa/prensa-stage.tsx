@@ -1,16 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { kindFromTab, ProofSheet } from '@/components/content/proof-sheet'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ProofSheetSkeleton, RetrievalSkeleton } from '@/components/ui/skeleton'
 import { useBrand } from '@/lib/application/brand/brand-provider'
-import type { Asset } from '@/lib/domain/asset'
+import type { Asset, AssetKind } from '@/lib/domain/asset'
 import { ApiError } from '@/lib/domain/errors'
 import { creativeApi } from '@/lib/infrastructure/api/creative'
 
 const TABS = ['Ficha de producto', 'Guion de video', 'Prompt de imagen'] as const
+
+function latestOf(assets: Asset[], kind: AssetKind): Asset | null {
+  return [...assets]
+    .filter((item) => item.kind === kind)
+    .sort((left, right) => +new Date(right.created_at) - +new Date(left.created_at))[0] ?? null
+}
 
 function RetrievalStrip({ status, citations }: { status: 'idle' | 'loading' | 'ready'; citations: string[] }) {
   if (status === 'idle') {
@@ -43,20 +49,42 @@ export function PrensaStage() {
   const { brand } = useBrand()
   const [tab, setTab] = useState<(typeof TABS)[number]>('Ficha de producto')
   const [prompt, setPrompt] = useState('Presentar Kiwicha Viva como una pausa cotidiana, sabrosa y de origen local.')
-  const [status, setStatus] = useState<'idle' | 'loading' | 'ready'>('idle')
-  const [asset, setAsset] = useState<Asset | null>(null)
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [hydrating, setHydrating] = useState(true)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+
+  const kind = kindFromTab(tab)
+  const asset = latestOf(assets, kind)
+  const status: 'idle' | 'loading' | 'ready' =
+    hydrating || generating ? 'loading' : asset ? 'ready' : 'idle'
+
+  useEffect(() => {
+    let cancelled = false
+    setHydrating(true)
+    void creativeApi.list()
+      .then((items) => {
+        if (!cancelled) setAssets(items)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : 'No se pudieron abrir las piezas.')
+      })
+      .finally(() => {
+        if (!cancelled) setHydrating(false)
+      })
+    return () => { cancelled = true }
+  }, [brand?.id])
 
   const consult = async () => {
     setError('')
-    setStatus('loading')
+    setGenerating(true)
     try {
-      const next = await creativeApi.generate({ kind: kindFromTab(tab), prompt })
-      setAsset(next)
-      setStatus('ready')
+      const next = await creativeApi.generate({ kind, prompt })
+      setAssets((current) => [next, ...current])
     } catch (err) {
-      setStatus('idle')
       setError(err instanceof ApiError ? err.message : 'No se pudo generar.')
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -71,7 +99,14 @@ export function PrensaStage() {
       </div>
       <div className="press-tabs">
         {TABS.map((item) => (
-          <button type="button" className={tab === item ? 'active' : ''} onClick={() => { setTab(item); setStatus('idle'); setAsset(null) }} key={item}>{item}</button>
+          <button
+            type="button"
+            className={tab === item ? 'active' : ''}
+            onClick={() => { setTab(item); setError('') }}
+            key={item}
+          >
+            {item}
+          </button>
         ))}
       </div>
       <div className="press-layout">
@@ -94,7 +129,9 @@ export function PrensaStage() {
                 <>
                   <Button variant="quiet" onClick={() => void navigator.clipboard.writeText(asset.body)}>Copiar</Button>
                   <Button variant="quiet" onClick={() => void consult()}>Regenerar</Button>
-                  <Button variant="primary" disabled>En cola de mesa</Button>
+                  <Button variant="primary" disabled>
+                    {asset.status === 'PENDING' ? 'En cola de mesa' : asset.status === 'APPROVED' ? 'Aprobada' : 'Rechazada'}
+                  </Button>
                 </>
               }
             />

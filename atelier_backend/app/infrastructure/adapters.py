@@ -60,6 +60,13 @@ class TemplateCopyGenerator:
                 f"Una pausa breve. {brand.manifesto} "
                 f"Hecho para {brand.audience}, con el tono {brand.tone}."
             )
+        elif kind is AssetKind.IMAGE_PROMPT:
+            title = prompt.strip() or f"Packshot {brand.name}"
+            body = (
+                f"Photographed pack of {brand.product}, palette {', '.join(brand.colors)}, "
+                f"natural light, generous clearspace around the mark, everyday pause for "
+                f"{brand.audience}, tone {brand.tone}, no medical claims, no forbidden words."
+            )
         else:
             title = prompt.strip() or brand.product
             body = (
@@ -88,6 +95,7 @@ class TemplateVisionAuditor:
                     f"La paleta activa es {', '.join(brand.colors)}."
                 ),
                 rule="Regla 03 · Paleta",
+                ok=False,
             ),
             Finding(
                 n=2,
@@ -97,6 +105,7 @@ class TemplateVisionAuditor:
                     f"No usar: {', '.join(brand.forbidden) or 'promesas absolutas'}."
                 ),
                 rule="Regla 02 · Voz",
+                ok=False,
             ),
         )
         passed = False

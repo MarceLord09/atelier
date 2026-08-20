@@ -6,7 +6,9 @@ def test_health(tmp_path):
     with client:
         response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["langfuse"] == "off"
 
 
 def test_register_login_me_and_refresh(tmp_path):
@@ -117,3 +119,61 @@ def test_compose_and_generate_require_auth_and_role(tmp_path):
         assert generated.status_code == 200
         assert generated.json()["status"] == "PENDING"
         assert generated.json()["citations"]
+
+        image_prompt = client.post(
+            "/api/v1/creative/generate",
+            headers=auth_header(creator["access_token"]),
+            json={"kind": "IMAGE_PROMPT", "prompt": "Packshot de mesa"},
+        )
+        assert image_prompt.status_code == 200
+        assert image_prompt.json()["kind"] == "IMAGE_PROMPT"
+
+        queue = client.get(
+            "/api/v1/governance/queue?status=PENDING",
+            headers=auth_header(approver["access_token"]),
+        )
+        assert queue.status_code == 200
+        kinds = {item["kind"] for item in queue.json()}
+        assert "PRODUCT_SHEET" in kinds
+        assert "IMAGE_PROMPT" in kinds
+        first_count = len(queue.json())
+
+        second = client.post(
+            "/api/v1/brands/compose",
+            headers=auth_header(creator["access_token"]),
+            json={
+                "product": "Alitas a la parrilla",
+                "audience": "Bar de barrio",
+                "tone": "cercano",
+                "promise": "Sabor de casa.",
+                "forbidden": ["milagroso"],
+                "name": "Primitivo",
+            },
+        )
+        assert second.status_code == 200
+        assert second.json()["id"] != composed.json()["id"]
+
+        isolated = client.get(
+            "/api/v1/governance/queue?status=PENDING",
+            headers=auth_header(approver["access_token"]),
+        )
+        assert isolated.status_code == 200
+        assert isolated.json() == []
+
+        catalog = client.get(
+            "/api/v1/brands/catalog",
+            headers=auth_header(approver["access_token"]),
+        )
+        assert catalog.status_code == 200
+        assert len(catalog.json()) == 2
+
+        switched = client.post(
+            f"/api/v1/brands/{composed.json()['id']}/activate",
+            headers=auth_header(approver["access_token"]),
+        )
+        assert switched.status_code == 200
+        restored = client.get(
+            "/api/v1/governance/queue?status=PENDING",
+            headers=auth_header(approver["access_token"]),
+        )
+        assert len(restored.json()) == first_count

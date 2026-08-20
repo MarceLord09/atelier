@@ -11,6 +11,12 @@ import { homePath, ROLE_LABEL, type Role } from '@/lib/domain/role'
 
 const ROLES: Role[] = ['CREATOR', 'APPROVER_A', 'APPROVER_B']
 
+const DEMO: { email: string; password: string; name: string; role: Role }[] = [
+  { email: 'lucia@atelier.app', password: 'Atelier2026!', name: 'Lucía Torres', role: 'CREATOR' },
+  { email: 'mateo@atelier.app', password: 'Atelier2026!', name: 'Mateo Salazar', role: 'APPROVER_A' },
+  { email: 'ines@atelier.app', password: 'Atelier2026!', name: 'Inés Vargas', role: 'APPROVER_B' },
+]
+
 export function LoginScreen() {
   const { ready, user, login, register } = useAuth()
   const router = useRouter()
@@ -50,6 +56,30 @@ export function LoginScreen() {
           <h1>Una mesa para<br /><em>hacerlo bien.</em></h1>
           <p className="lede">Entra con tu correo. El rol abre solo tu mesa.</p>
           <div className="login-rule" />
+          {mode === 'login' && (
+            <div>
+              {DEMO.map((item) => (
+                <button
+                  key={item.email}
+                  type="button"
+                  className="demo-user"
+                  disabled={pending}
+                  onClick={() => {
+                    setEmail(item.email)
+                    setPassword(item.password)
+                    setError('')
+                  }}
+                >
+                  <span className="avatar">{item.name.split(' ').map((part) => part[0]).join('')}</span>
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{ROLE_LABEL[item.role]} · {item.email}</small>
+                  </span>
+                  <span className="arrow">→</span>
+                </button>
+              ))}
+            </div>
+          )}
           <form className="login-form" onSubmit={(event) => void submit(event)}>
             {mode === 'register' && (
               <>

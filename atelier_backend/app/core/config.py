@@ -16,12 +16,20 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "qwen/qwen3.6-27b"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 15
     refresh_token_days: int = 7
     allow_self_assign_role: bool = True
     llm_provider: Literal["template", "live"] = "template"
+    seed_demo_users: bool = True
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        return bool(self.langfuse_public_key and self.langfuse_secret_key)
 
     @property
     def cors_origin_list(self) -> list[str]:

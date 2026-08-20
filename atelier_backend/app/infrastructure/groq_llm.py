@@ -23,21 +23,36 @@ class GroqClient:
         self._http = httpx.AsyncClient(timeout=45.0)
 
     async def complete_json(self, *, system: str, user: str) -> dict:
+        payload = await self._chat(system=system, user=user, json_mode=True)
+        if payload is None:
+            payload = await self._chat(system=system, user=user, json_mode=False)
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise UnprocessableError("Groq devolvió una respuesta vacía.", code="llm_error") from exc
+        if not content:
+            raise UnprocessableError("Groq devolvió una respuesta vacía.", code="llm_error")
+        return parse_json_object(content)
+
+    async def _chat(self, *, system: str, user: str, json_mode: bool) -> dict | None:
+        body: dict = {
+            "model": self.model,
+            "temperature": 0.35,
+            "reasoning_effort": "none",
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
         response = await self._http.post(
             GROQ_CHAT_URL,
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": self.model,
-                "temperature": 0.35,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            },
+            json=body,
         )
         if response.status_code == 401:
             raise UnprocessableError(
@@ -50,21 +65,45 @@ class GroqClient:
                 code="llm_rate_limit",
             )
         if response.status_code >= 400:
+            if json_mode and _is_json_validate_error(response):
+                return None
             raise UnprocessableError(
                 "Groq no pudo generar el texto. Intenta de nuevo.",
                 code="llm_error",
             )
+        return response.json()
+
+
+def _is_json_validate_error(response: httpx.Response) -> bool:
+    try:
         payload = response.json()
-        try:
-            content = payload["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise UnprocessableError("Groq devolvió una respuesta vacía.", code="llm_error") from exc
-        return parse_json_object(content)
+    except ValueError:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return False
+    return error.get("code") == "json_validate_failed"
+
+
+def _clip(value: object, max_len: int) -> object:
+    if isinstance(value, str):
+        return value.strip()[:max_len]
+    return value
 
 
 class ChunkDraft(BaseModel):
     heading: str = Field(min_length=2, max_length=80)
     content: str = Field(min_length=8, max_length=800)
+
+    @field_validator("heading", mode="before")
+    @classmethod
+    def _clip_heading(cls, value: object) -> object:
+        return _clip(value, 80)
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _clip_content(cls, value: object) -> object:
+        return _clip(value, 800)
 
 
 class BookDraft(BaseModel):
@@ -81,10 +120,35 @@ class BookDraft(BaseModel):
     def _ensure_list(cls, value: object) -> object:
         return value if isinstance(value, list) else []
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _clip_name(cls, value: object) -> object:
+        return _clip(value, 80)
+
+    @field_validator("manifesto", mode="before")
+    @classmethod
+    def _clip_manifesto(cls, value: object) -> object:
+        return _clip(value, 400)
+
+    @field_validator("tone", mode="before")
+    @classmethod
+    def _clip_tone(cls, value: object) -> object:
+        return _clip(value, 40)
+
 
 class CopyDraft(BaseModel):
     title: str = Field(min_length=2, max_length=120)
     body: str = Field(min_length=12, max_length=1200)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _clip_title(cls, value: object) -> object:
+        return _clip(value, 120)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _clip_body(cls, value: object) -> object:
+        return _clip(value, 1200)
 
 
 class GroqBrandComposer:
@@ -143,33 +207,49 @@ class GroqCopyGenerator:
         context: Sequence[Chunk],
         prompt: str,
     ) -> GeneratedCopy:
-        payload = await self._client.complete_json(
-            system=(
-                "Eres copywriter de ATELIER. Usas SOLO el manual recuperado. "
-                "No inventes beneficios. No uses palabras prohibidas. JSON único."
-            ),
-            user=_generate_prompt(kind=kind, brand=brand, context=context, prompt=prompt),
-        )
-        try:
-            draft = CopyDraft.model_validate(payload)
-        except ValidationError as exc:
-            raise UnprocessableError(
-                "El modelo no devolvió una pieza usable. Intenta de nuevo.",
-                code="llm_schema",
-            ) from exc
-        lowered = f"{draft.title} {draft.body}".casefold()
-        banned = [word for word in brand.forbidden if word and word.casefold() in lowered]
-        if banned:
-            raise UnprocessableError(
-                f"El copy usó palabras prohibidas: {', '.join(banned)}. Vuelve a generar.",
-                code="brand_violation",
+        last_error: UnprocessableError | None = None
+        for attempt in range(3):
+            extra = (
+                "\nEl intento anterior violó los límites de voz. Reescribe title y body "
+                "desde cero. No copies ni nombres los términos de esa lista."
+                if attempt
+                else ""
             )
-        citations = _citations(context, f"{draft.title}\n{draft.body}")
-        return GeneratedCopy(
-            title=draft.title.strip(),
-            body=draft.body.strip(),
-            model=self._client.model,
-            citations=citations,
+            payload = await self._client.complete_json(
+                system=(
+                    "Eres copywriter de ATELIER. Usas SOLO el manual recuperado. "
+                    "No inventes beneficios. Nunca escribas palabras de la lista de "
+                    "límites, ni siquiera para prohibirlas. JSON único."
+                ),
+                user=_generate_prompt(kind=kind, brand=brand, context=context, prompt=prompt)
+                + extra,
+            )
+            try:
+                draft = CopyDraft.model_validate(payload)
+            except ValidationError as exc:
+                last_error = UnprocessableError(
+                    "El modelo no devolvió una pieza usable. Intenta de nuevo.",
+                    code="llm_schema",
+                )
+                last_error.__cause__ = exc
+                continue
+            banned = _forbidden_hits(f"{draft.title} {draft.body}", brand.forbidden)
+            if banned:
+                last_error = UnprocessableError(
+                    f"El copy usó palabras prohibidas: {', '.join(banned)}. Vuelve a generar.",
+                    code="brand_violation",
+                )
+                continue
+            citations = _citations(context, f"{draft.title}\n{draft.body}")
+            return GeneratedCopy(
+                title=draft.title.strip(),
+                body=draft.body.strip(),
+                model=self._client.model,
+                citations=citations,
+            )
+        raise last_error or UnprocessableError(
+            "El modelo no devolvió una pieza usable. Intenta de nuevo.",
+            code="llm_schema",
         )
 
 
@@ -212,16 +292,52 @@ def _generate_prompt(
     context: Sequence[Chunk],
     prompt: str,
 ) -> str:
-    piece = "ficha de producto" if kind is AssetKind.PRODUCT_SHEET else "guion corto de video (15-25s)"
-    manual = "\n\n".join(f"[{chunk.heading}]\n{chunk.content}" for chunk in context)
+    piece = {
+        AssetKind.PRODUCT_SHEET: "ficha de producto",
+        AssetKind.VIDEO_SCRIPT: "guion corto de video (15-25s)",
+        AssetKind.IMAGE_PROMPT: (
+            "prompt de imagen publicitaria listo para un modelo de imagen "
+            "(packshot, paleta del manual, área de respeto del logo)"
+        ),
+    }.get(kind, "ficha de producto")
+    manual = "\n\n".join(
+        f"[{chunk.heading}]\n{_redact_forbidden(chunk.content, brand.forbidden)}"
+        for chunk in context
+    )
+    json_hint = (
+        "JSON: {title, body}. body es el prompt de imagen, un párrafo, paleta y clearspace del manual."
+        if kind is AssetKind.IMAGE_PROMPT
+        else "JSON: {title, body}. body en español, 2-4 frases, citando la esencia del manual."
+    )
     return (
         f"Escribe una {piece} para {brand.name}.\n"
-        f"Pedido del creador: {prompt.strip() or brand.product}\n"
+        f"Pedido del creador: {_redact_forbidden(prompt.strip() or brand.product, brand.forbidden)}\n"
         f"Tono: {brand.tone}. Audiencia: {brand.audience}.\n"
-        f"Prohibido: {', '.join(brand.forbidden) or 'promesas absolutas'}.\n"
+        "No copies los términos tachados del manual ([omitido]); no los escribas ni para prohibirlos.\n"
         f"Manual recuperado (RAG):\n{manual}\n"
-        "JSON: {title, body}. body en español, 2-4 frases, citando la esencia del manual."
+        f"{json_hint}"
     )
+
+
+def _forbidden_hits(text: str, forbidden: Sequence[str]) -> list[str]:
+    hits: list[str] = []
+    for word in forbidden:
+        token = word.strip()
+        if not token:
+            continue
+        if re.search(rf"(?i)(?<!\w){re.escape(token)}(?!\w)", text):
+            hits.append(token)
+    return hits
+
+
+def _redact_forbidden(text: str, forbidden: Sequence[str]) -> str:
+    redacted = text
+    for word in forbidden:
+        token = word.strip()
+        if not token:
+            continue
+        redacted = re.sub(rf"(?i)(?<!\w){re.escape(token)}(?!\w)", "[omitido]", redacted)
+    return redacted
 
 
 def _normalize_colors(colors: Sequence[str]) -> tuple[str, ...]:

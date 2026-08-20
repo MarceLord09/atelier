@@ -90,6 +90,7 @@ class Finding:
     title: str
     detail: str
     rule: str
+    ok: bool = False
 
 
 @dataclass(frozen=True)

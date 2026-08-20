@@ -77,9 +77,17 @@ class BrandResponse(BaseModel):
     voice_dont: list[str]
     indexed: bool
     created_at: datetime
+    kit_complete: bool = False
+    current: bool = False
 
     @classmethod
-    def from_entity(cls, brand: Brand) -> "BrandResponse":
+    def from_entity(
+        cls,
+        brand: Brand,
+        *,
+        kit_complete: bool = False,
+        current: bool = False,
+    ) -> "BrandResponse":
         return cls(
             id=brand.id,
             name=brand.name,
@@ -94,6 +102,8 @@ class BrandResponse(BaseModel):
             voice_dont=list(brand.voice_dont),
             indexed=brand.indexed_at is not None,
             created_at=brand.created_at,
+            kit_complete=kit_complete,
+            current=current,
         )
 
 
@@ -137,6 +147,7 @@ class FindingResponse(BaseModel):
     title: str
     detail: str
     rule: str
+    ok: bool = False
 
 
 class AuditResponse(BaseModel):

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Column, DateTime, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.domain.enums import AssetKind, AssetStatus, Role
@@ -55,6 +55,9 @@ class BrandRow(SQLModel, table=True):
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    activated_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
 
 
 class ChunkRow(SQLModel, table=True):
@@ -76,7 +79,10 @@ class AssetRow(SQLModel, table=True):
     kind: AssetKind
     title: str = Field(max_length=200)
     body: str = Field(sa_column=Column(Text, nullable=False))
-    status: AssetStatus = AssetStatus.PENDING
+    status: AssetStatus = Field(
+        default=AssetStatus.PENDING,
+        sa_column=Column(String(16), nullable=False, index=True),
+    )
     citations: list[str] = Field(sa_column=Column(JSON, nullable=False))
     model: str = Field(max_length=80)
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))

@@ -1,5 +1,9 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from app.core.exceptions import UnprocessableError
-from app.infrastructure.gemini_vision import sniff_mime
+from app.domain.entities import Brand, Finding
+from app.infrastructure.gemini_vision import _correct_name_finding, sniff_mime
 
 
 def test_sniff_mime_jpeg_png_webp():
@@ -14,3 +18,33 @@ def test_sniff_mime_rejects_other_bytes():
     except UnprocessableError:
         return
     raise AssertionError("expected UnprocessableError")
+
+
+def test_name_check_does_not_confuse_atelier_with_brand():
+    brand = Brand(
+        id=uuid4(),
+        name="Primitivo",
+        product="Alitas",
+        audience="Bar",
+        tone="cercano",
+        promise="Sabor",
+        manifesto="Sabor",
+        forbidden=(),
+        colors=("#000000",),
+        voice_do=(),
+        voice_dont=(),
+        created_by=uuid4(),
+        indexed_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+    )
+    finding = Finding(
+        n=1,
+        title="Nombre de marca",
+        detail="El texto visible presenta Primitivo y Cusqueña, no coincide con la marca ATELIER.",
+        rule="Regla 01 · Nombre",
+        ok=False,
+    )
+    fixed = _correct_name_finding(finding, brand)
+    assert fixed.ok is True
+    assert "ATELIER" not in fixed.detail or "plataforma" in fixed.detail.casefold()
+    assert "Primitivo" in fixed.detail

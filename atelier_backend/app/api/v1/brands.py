@@ -1,10 +1,19 @@
 from fastapi import APIRouter
+from uuid import UUID
 
 from app.api.deps import BrandServiceDep, CurrentUser, CreatorUser
 from app.api.schemas import BrandResponse, ComposeBrandRequest
 from app.domain.entities import BrandBrief
 
 router = APIRouter(prefix="/brands", tags=["brands"])
+
+
+async def _to_response(service: BrandServiceDep, brand, *, current: bool) -> BrandResponse:
+    return BrandResponse.from_entity(
+        brand,
+        kit_complete=await service.kit_complete(brand.id),
+        current=current,
+    )
 
 
 @router.post("/compose")
@@ -22,11 +31,33 @@ async def compose_brand(
         name=body.name.strip() if body.name else None,
     )
     brand = await service.compose(user, brief)
-    return BrandResponse.from_entity(brand)
+    return await _to_response(service, brand, current=True)
 
 
 @router.get("/current")
 async def current_brand(user: CurrentUser, service: BrandServiceDep) -> BrandResponse:
     _ = user
     brand = await service.current()
-    return BrandResponse.from_entity(brand)
+    return await _to_response(service, brand, current=True)
+
+
+@router.get("/catalog")
+async def list_brands(user: CurrentUser, service: BrandServiceDep) -> list[BrandResponse]:
+    _ = user
+    brands = await service.list_brands()
+    current = brands[0] if brands else None
+    return [
+        await _to_response(service, brand, current=current is not None and brand.id == current.id)
+        for brand in brands
+    ]
+
+
+@router.post("/{brand_id}/activate")
+async def activate_brand(
+    brand_id: UUID,
+    user: CurrentUser,
+    service: BrandServiceDep,
+) -> BrandResponse:
+    _ = user
+    brand = await service.activate(brand_id)
+    return await _to_response(service, brand, current=True)

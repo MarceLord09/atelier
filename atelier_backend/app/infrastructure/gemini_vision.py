@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import unicodedata
 from collections.abc import Sequence
 
 import httpx
@@ -26,8 +27,9 @@ RESPONSE_SCHEMA = {
                     "title": {"type": "string"},
                     "detail": {"type": "string"},
                     "rule": {"type": "string"},
+                    "ok": {"type": "boolean"},
                 },
-                "required": ["n", "title", "detail", "rule"],
+                "required": ["n", "title", "detail", "rule", "ok"],
             },
         },
     },
@@ -40,6 +42,7 @@ class FindingDraft(BaseModel):
     title: str = Field(min_length=3, max_length=80)
     detail: str = Field(min_length=8, max_length=500)
     rule: str = Field(min_length=3, max_length=80)
+    ok: bool = False
 
 
 class AuditPayload(BaseModel):
@@ -76,9 +79,10 @@ class GeminiVisionAuditor:
                     "parts": [
                         {
                             "text": (
-                                "Eres auditor visual de marca de ATELIER. "
-                                "Contrasta la pieza contra el manual. Español. "
-                                "No inventes textos que no se vean. JSON único."
+                                "Eres auditor visual de una content suite. "
+                                "ATELIER es la plataforma, NUNCA la marca a contrastar. "
+                                "La única marca válida es el nombre del manual que te pasan. "
+                                "Lees el texto visible. Español. JSON único."
                             )
                         }
                     ]
@@ -110,19 +114,31 @@ class GeminiVisionAuditor:
         except ValidationError as exc:
             raise UnprocessableError("Gemini no devolvió un dictamen usable.", code="vision_schema") from exc
         findings = tuple(
-            Finding(n=index, title=item.title.strip(), detail=item.detail.strip(), rule=item.rule.strip())
+            _correct_name_finding(
+                Finding(
+                    n=index,
+                    title=item.title.strip(),
+                    detail=item.detail.strip(),
+                    rule=item.rule.strip(),
+                    ok=item.ok,
+                ),
+                brand,
+            )
             for index, item in enumerate(draft.findings, start=1)
         )
-        if not draft.passed and not findings:
+        passed = all(item.ok for item in findings) if findings else False
+        if not findings:
             findings = (
                 Finding(
                     n=1,
-                    title="Fuera de manual",
-                    detail=f"La pieza {image_name} no cumple el contraste contra {brand.name}.",
+                    title="Sin contraste usable",
+                    detail=f"El modelo no desglosó reglas contra {brand.name}.",
                     rule="Regla 01 · DNA",
+                    ok=False,
                 ),
             )
-        return AuditDraft(passed=draft.passed, findings=findings, model=self.model)
+            passed = False
+        return AuditDraft(passed=passed, findings=findings, model=self.model)
 
 
 def sniff_mime(image: bytes) -> str:
@@ -137,18 +153,73 @@ def sniff_mime(image: bytes) -> str:
 
 def _audit_prompt(brand: Brand, image_name: str, context: Sequence[Chunk]) -> str:
     manual = "\n".join(f"[{chunk.heading}] {chunk.content}" for chunk in context) or brand.manifesto
+    forbidden = ", ".join(brand.forbidden) or "promesas médicas o absolutas"
     return (
-        f"Audita la imagen «{image_name}» contra el manual de {brand.name}.\n"
+        f"Audita la imagen «{image_name}» contra el manual de «{brand.name}».\n"
+        f"Marca activa (la única que importa): {brand.name}\n"
+        "ATELIER es el nombre de la herramienta. No lo uses en el dictamen.\n"
         f"Producto: {brand.product}. Tono: {brand.tone}. Audiencia: {brand.audience}.\n"
         f"Paleta: {', '.join(brand.colors)}.\n"
-        f"Prohibido: {', '.join(brand.forbidden) or 'promesas médicas o absolutas'}.\n"
+        f"Prohibido en el copy visible: {forbidden}.\n"
         f"Voz sí: {' / '.join(brand.voice_do)}\n"
         f"Voz no: {' / '.join(brand.voice_dont)}\n"
         f"Manual RAG:\n{manual}\n"
-        "Evalúa paleta, tipografía/jerarquía, claims y respeto del isotipo. "
-        "passed=true solo si la pieza es coherente. "
-        "findings: 0 a 4. rule como 'Regla 03 · Paleta'."
+        "Devuelve SIEMPRE 4 findings, en este orden, cada uno con ok true/false:\n"
+        "1) Nombre de marca: ok=true si el lockup, logo o título principal es "
+        f"«{brand.name}» (mayúsculas, acento u ornamento no invalidan). "
+        "ATELIER no es la marca. Otras marcas de props (vasos, cerveza, platos) "
+        "no fallan este check si el nombre del manual está presente. "
+        f"ok=false solo si el héroe visual nombra OTRA marca en lugar de {brand.name}.\n"
+        "2) Paleta (colores dominantes vs hex del manual).\n"
+        "3) Claims y voz (promesas médicas, palabras prohibidas, tono).\n"
+        "4) Área de respeto del isotipo / jerarquía tipográfica.\n"
+        "passed=true SOLO si los 4 tienen ok=true. "
+        "rule como 'Regla 01 · Nombre'."
     )
+
+
+def _fold(text: str) -> str:
+    stripped = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in stripped if not unicodedata.combining(char)).casefold()
+
+
+def _correct_name_finding(finding: Finding, brand: Brand) -> Finding:
+    if "nombre" not in finding.title.casefold() and "nombre" not in finding.rule.casefold():
+        return finding
+    folded = _fold(finding.detail)
+    brand_fold = _fold(brand.name)
+    confused = "atelier" in folded and brand_fold != "atelier"
+    named = brand_fold in folded
+    if confused and named:
+        return Finding(
+            n=finding.n,
+            title=finding.title,
+            detail=f"El lockup visible corresponde a {brand.name}. ATELIER es la plataforma, no la marca.",
+            rule=finding.rule,
+            ok=True,
+        )
+    if confused:
+        rewritten = (
+            finding.detail.replace("ATELIER", brand.name)
+            .replace("Atelier", brand.name)
+            .replace("atelier", brand.name)
+        )
+        return Finding(
+            n=finding.n,
+            title=finding.title,
+            detail=rewritten,
+            rule=finding.rule,
+            ok=finding.ok,
+        )
+    if named and not finding.ok:
+        return Finding(
+            n=finding.n,
+            title=finding.title,
+            detail=finding.detail,
+            rule=finding.rule,
+            ok=True,
+        )
+    return finding
 
 
 def _gemini_error(response: httpx.Response) -> UnprocessableError:

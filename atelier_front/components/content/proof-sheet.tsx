@@ -35,6 +35,8 @@ export function ProofSheet({
             </div>
           ))}
         </div>
+      ) : asset.kind === 'IMAGE_PROMPT' ? (
+        <p className="proof-copy">{asset.body}</p>
       ) : (
         <p className="proof-copy">{asset.body}</p>
       )}
@@ -47,5 +49,7 @@ export function ProofSheet({
 }
 
 export function kindFromTab(tab: string): AssetKind {
-  return tab === 'Guion de video' ? 'VIDEO_SCRIPT' : 'PRODUCT_SHEET'
+  if (tab === 'Guion de video') return 'VIDEO_SCRIPT'
+  if (tab === 'Prompt de imagen') return 'IMAGE_PROMPT'
+  return 'PRODUCT_SHEET'
 }

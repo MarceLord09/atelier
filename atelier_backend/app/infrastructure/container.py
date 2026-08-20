@@ -61,6 +61,7 @@ class Container:
     def brand_service(self, session: AsyncSession) -> BrandService:
         return BrandService(
             brands=SqlBrandRepository(session),
+            assets=SqlAssetRepository(session),
             composer=self.composer,
             embedder=self.embedder,
             uow=SqlAlchemyUnitOfWork(session),

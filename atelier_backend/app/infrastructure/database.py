@@ -3,6 +3,7 @@ from ssl import CERT_NONE, create_default_context
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import certifi
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -16,6 +17,8 @@ def _async_database_url(url: str) -> str:
         url = "postgresql+asyncpg://" + url.removeprefix("postgresql://")
     elif url.startswith("postgres://"):
         url = "postgresql+asyncpg://" + url.removeprefix("postgres://")
+    if url.startswith("sqlite"):
+        return url
     parts = urlsplit(url)
     query = [(key, value) for key, value in parse_qsl(parts.query) if key.lower() != "ssl"]
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
@@ -45,6 +48,38 @@ def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
 async def create_schema(engine: AsyncEngine) -> None:
     async with engine.begin() as connection:
         await connection.run_sync(SQLModel.metadata.create_all)
+    await ensure_pgvector(engine)
+    await ensure_postgres_enums(engine)
+
+
+async def ensure_pgvector(engine: AsyncEngine) -> None:
+    if engine.dialect.name != "postgresql":
+        return
+    statements = (
+        "CREATE EXTENSION IF NOT EXISTS vector",
+        "ALTER TABLE brand_chunks ADD COLUMN IF NOT EXISTS embedding vector(1536)",
+        "ALTER TABLE brands ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ",
+    )
+    try:
+        async with engine.begin() as connection:
+            for statement in statements:
+                await connection.execute(text(statement))
+    except Exception:
+        return
+
+
+async def ensure_postgres_enums(engine: AsyncEngine) -> None:
+    """create_all no altera enums existentes: IMAGE_PROMPT se añadió después."""
+    if engine.dialect.name != "postgresql":
+        return
+    try:
+        async with engine.connect() as connection:
+            autocommit = await connection.execution_options(isolation_level="AUTOCOMMIT")
+            await autocommit.execute(
+                text("ALTER TYPE assetkind ADD VALUE IF NOT EXISTS 'IMAGE_PROMPT'")
+            )
+    except Exception:
+        return
 
 
 async def session_scope(

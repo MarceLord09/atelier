@@ -5,6 +5,12 @@ export const brandsApi = {
   current(): Promise<Brand> {
     return api<Brand>('/api/v1/brands/current')
   },
+  list(): Promise<Brand[]> {
+    return api<Brand[]>('/api/v1/brands/catalog')
+  },
+  activate(brandId: string): Promise<Brand> {
+    return api<Brand>(`/api/v1/brands/${brandId}/activate`, { method: 'POST' })
+  },
   compose(brief: BrandBrief): Promise<Brand> {
     return api<Brand>('/api/v1/brands/compose', {
       method: 'POST',

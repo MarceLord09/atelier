@@ -117,9 +117,23 @@ class SqlBrandRepository:
         self._session = session
 
     async def get_current(self) -> Brand | None:
-        result = await self._session.exec(select(BrandRow).order_by(BrandRow.created_at.desc()))
+        result = await self._session.exec(
+            select(BrandRow).order_by(
+                BrandRow.activated_at.desc().nulls_last(),
+                BrandRow.created_at.desc(),
+            )
+        )
         row = result.first()
         return _to_brand(row) if row else None
+
+    async def list(self) -> list[Brand]:
+        result = await self._session.exec(
+            select(BrandRow).order_by(
+                BrandRow.activated_at.desc().nulls_last(),
+                BrandRow.created_at.desc(),
+            )
+        )
+        return [_to_brand(row) for row in result.all()]
 
     async def get(self, brand_id: UUID) -> Brand | None:
         row = await self._session.get(BrandRow, brand_id)
@@ -142,6 +156,15 @@ class SqlBrandRepository:
         row.voice_dont = list(brand.voice_dont)
         row.created_by = brand.created_by
         row.indexed_at = brand.indexed_at
+        row.activated_at = datetime.now(UTC)
+        await self._session.flush()
+        return _to_brand(row)
+
+    async def activate(self, brand_id: UUID) -> Brand | None:
+        row = await self._session.get(BrandRow, brand_id)
+        if row is None:
+            return None
+        row.activated_at = datetime.now(UTC)
         await self._session.flush()
         return _to_brand(row)
 
@@ -231,10 +254,12 @@ class SqlAssetRepository:
         row = await self._session.get(AssetRow, asset_id)
         return _to_asset(row) if row else None
 
-    async def list(self, *, status: AssetStatus | None = None) -> list[Asset]:
+    async def list(self, *, brand_id: UUID | None = None, status: AssetStatus | None = None) -> list[Asset]:
         statement = select(AssetRow).order_by(AssetRow.created_at.desc())
+        if brand_id is not None:
+            statement = statement.where(AssetRow.brand_id == brand_id)
         if status is not None:
-            statement = statement.where(AssetRow.status == status)
+            statement = statement.where(AssetRow.status == status.value)
         result = await self._session.exec(statement)
         return [_to_asset(row) for row in result.all()]
 
@@ -318,6 +343,7 @@ def _to_audit(row: AuditRow) -> Audit:
             title=str(item["title"]),
             detail=str(item["detail"]),
             rule=str(item["rule"]),
+            ok=bool(item.get("ok", False)),
         )
         for item in (row.findings or [])
     )

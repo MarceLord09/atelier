@@ -10,6 +10,7 @@ class Role(StrEnum):
 class AssetKind(StrEnum):
     PRODUCT_SHEET = "PRODUCT_SHEET"
     VIDEO_SCRIPT = "VIDEO_SCRIPT"
+    IMAGE_PROMPT = "IMAGE_PROMPT"
 
 
 class AssetStatus(StrEnum):

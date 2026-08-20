@@ -3,6 +3,7 @@ export type Finding = {
   title: string
   detail: string
   rule: string
+  ok: boolean
 }
 
 export type Audit = {

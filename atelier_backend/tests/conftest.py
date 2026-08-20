@@ -11,8 +11,9 @@ def make_client(tmp_path) -> TestClient:
         environment="development",
         allow_self_assign_role=True,
         llm_provider="template",
-        groq_api_key="",
-        gemini_api_key="",
+        seed_demo_users=False,
+        langfuse_public_key="",
+        langfuse_secret_key="",
     )
     return TestClient(create_app(settings))
 

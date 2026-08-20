@@ -8,9 +8,13 @@ import { brandsApi } from '@/lib/infrastructure/api/brands'
 
 type BrandContextValue = {
   brand: Brand | null
+  brands: Brand[]
   loading: boolean
+  busy: boolean
   setBrand: (brand: Brand | null) => void
+  setBusy: (busy: boolean) => void
   refresh: () => Promise<void>
+  select: (brandId: string) => Promise<void>
 }
 
 const BrandContext = createContext<BrandContextValue | null>(null)
@@ -18,23 +22,39 @@ const BrandContext = createContext<BrandContextValue | null>(null)
 export function BrandProvider({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth()
   const [brand, setBrand] = useState<Brand | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!user) {
       setBrand(null)
+      setBrands([])
+      setLoading(false)
       return
     }
     setLoading(true)
     try {
-      setBrand(await brandsApi.current())
+      const items = await brandsApi.list()
+      setBrands(items)
+      setBrand(items.find((item) => item.current) ?? items[0] ?? null)
     } catch (error) {
-      if (isNotFound(error)) setBrand(null)
-      else console.error(error)
+      if (isNotFound(error)) {
+        setBrand(null)
+        setBrands([])
+      } else console.error(error)
     } finally {
       setLoading(false)
     }
   }, [user])
+
+  const select = useCallback(async (brandId: string) => {
+    const next = await brandsApi.activate(brandId)
+    setBrand(next)
+    setBrands((current) =>
+      current.map((item) => ({ ...item, current: item.id === next.id })),
+    )
+  }, [])
 
   useEffect(() => {
     if (!ready) return
@@ -42,8 +62,8 @@ export function BrandProvider({ children }: { children: ReactNode }) {
   }, [ready, refresh])
 
   const value = useMemo(
-    () => ({ brand, loading, setBrand, refresh }),
-    [brand, loading, refresh],
+    () => ({ brand, brands, loading, busy, setBrand, setBusy, refresh, select }),
+    [brand, brands, loading, busy, refresh, select],
   )
 
   return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>

@@ -7,10 +7,13 @@ from fastapi.responses import JSONResponse
 
 from app.api.health import build_health_router
 from app.api.v1 import api_router
+from app.application.seed import seed_demo_users
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.infrastructure.container import Container
 from app.infrastructure.database import build_engine, build_session_factory, create_schema
+from app.core.observability import tracer
+from app.infrastructure.repositories import SqlAlchemyUnitOfWork, SqlUserRepository
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -23,8 +26,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        tracer.configure(
+            public_key=settings.langfuse_public_key,
+            secret_key=settings.langfuse_secret_key,
+            host=settings.langfuse_host,
+        )
         await create_schema(engine)
+        if settings.seed_demo_users:
+            async with session_factory() as session:
+                await seed_demo_users(
+                    users=SqlUserRepository(session),
+                    hasher=container.hasher,
+                    uow=SqlAlchemyUnitOfWork(session),
+                )
         yield
+        tracer.flush()
         await engine.dispose()
 
     app = FastAPI(
@@ -40,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
+        allow_origin_regex=r"https://([a-z0-9-]+\.)*(vercel\.app|onrender\.com)",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

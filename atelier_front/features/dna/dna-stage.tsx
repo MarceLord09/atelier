@@ -23,11 +23,21 @@ const DEFAULT_BRIEF = {
 
 function BrandBook({ brand, loading, compose }: { brand: Brand | null; loading: boolean; compose: () => void }) {
   const [first, rest] = splitHeading(brand?.name ?? '')
+  const status = loading ? '● COMPONIENDO' : brand?.indexed ? '● MANUAL ACTIVO' : '○ SIN MANUAL'
   return (
     <section className={`brand-book ${brand ? 'is-generated' : ''}`}>
       <div className="book-toolbar">
         <Label>MANUAL DE MARCA / V.01</Label>
-        <span>{loading ? 'Componiendo…' : brand?.indexed ? `Indexado en RAG · ${new Date(brand.created_at).toLocaleString('es-PE')}` : 'Borrador sin indexar'}</span>
+        <span className="book-toolbar-meta">
+          <span className={`module-status${brand?.indexed && !loading ? '' : ' is-idle'}`}>{status}</span>
+          <span>
+            {loading
+              ? 'Componiendo…'
+              : brand?.indexed
+                ? `Indexado en RAG · ${new Date(brand.created_at).toLocaleString('es-PE')}`
+                : 'Borrador sin indexar'}
+          </span>
+        </span>
       </div>
       {loading ? <BrandBookSkeleton /> : !brand ? (
         <div className="book-empty">
@@ -83,15 +93,16 @@ function BrandBook({ brand, loading, compose }: { brand: Brand | null; loading: 
 }
 
 export function DnaStage() {
-  const { brand, setBrand } = useBrand()
+  const { brand, loading: hydrating, setBrand, setBusy, refresh } = useBrand()
   const [product, setProduct] = useState(brand?.product ?? DEFAULT_BRIEF.product)
   const [audience, setAudience] = useState(brand?.audience ?? DEFAULT_BRIEF.audience)
   const [tone, setTone] = useState(brand?.tone ?? DEFAULT_BRIEF.tone)
   const [promise, setPromise] = useState(brand?.promise ?? DEFAULT_BRIEF.promise)
   const [forbidden, setForbidden] = useState(brand?.forbidden.join(', ') ?? DEFAULT_BRIEF.forbidden)
   const [name, setName] = useState(brand?.name ?? DEFAULT_BRIEF.name)
-  const [loading, setLoading] = useState(false)
+  const [composing, setComposing] = useState(false)
   const [error, setError] = useState('')
+  const loading = hydrating || composing
 
   useEffect(() => {
     if (!brand) return
@@ -105,7 +116,8 @@ export function DnaStage() {
 
   const compose = async () => {
     setError('')
-    setLoading(true)
+    setComposing(true)
+    setBusy(true)
     try {
       const next = await brandsApi.compose({
         name,
@@ -116,24 +128,25 @@ export function DnaStage() {
         forbidden: forbidden.split(',').map((word) => word.trim()).filter(Boolean),
       })
       setBrand(next)
+      await refresh()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo componer el manual.')
     } finally {
-      setLoading(false)
+      setComposing(false)
+      setBusy(false)
     }
   }
 
   return (
-    <>
-      <div className="stage-head">
-        <div>
-          <Label>MÓDULO 01 — DNA</Label>
-          <h1>Arquitecta de marca</h1>
-          <p>Convierte una intuición en un sistema que todos puedan usar.</p>
+    <div className="atelier-grid">
+      <div>
+        <div className="stage-head">
+          <div>
+            <Label>MÓDULO 01 — DNA</Label>
+            <h1>Arquitecta de marca</h1>
+            <p>Convierte una intuición en un sistema que todos puedan usar.</p>
+          </div>
         </div>
-        <span className="module-status">{loading ? '● COMPONIENDO' : brand?.indexed ? '● MANUAL ACTIVO' : '○ SIN MANUAL'}</span>
-      </div>
-      <div className="atelier-grid">
         <section className="brief">
           <Label>BRIEF DE MARCA</Label>
           <div className="form-field">
@@ -165,10 +178,20 @@ export function DnaStage() {
             <input value={forbidden} onChange={(event) => setForbidden(event.target.value)} />
           </div>
           {error && <p className="form-error">{error}</p>}
-          <Button onClick={() => void compose()} disabled={loading}>Componer manual <span>→</span></Button>
+          {brand?.kit_complete && (
+            <p className="login-foot">
+              Este DNA ya tiene ficha, guion y prompt aprobados. Si cambias el nombre, se crea otra marca y la cola no se mezcla.
+            </p>
+          )}
+          <Button onClick={() => void compose()} disabled={loading}>
+            {brand && name.trim().toLocaleLowerCase() !== brand.name.toLocaleLowerCase()
+              ? 'Crear nueva marca'
+              : 'Componer manual'}{' '}
+            <span>→</span>
+          </Button>
         </section>
-        <BrandBook brand={brand} loading={loading} compose={() => void compose()} />
       </div>
-    </>
+      <BrandBook brand={brand} loading={loading} compose={() => void compose()} />
+    </div>
   )
 }
