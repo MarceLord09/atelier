@@ -136,14 +136,10 @@ Si Supabase lo bloquea, corre eso en SQL Editor.
 
 ## Deploy
 
-El **front** ya está público: [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev)
+- **App:** [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev)
+- **API / health:** [https://atelier-alicorp-api.onrender.com/health](https://atelier-alicorp-api.onrender.com/health)
 
-Cloudflare free no corre FastAPI (Containers pide plan de pago). El **API** va a Render free:
-
-1. Abre el [Blueprint](https://dashboard.render.com/blueprint/new?repo=https://github.com/MarceLord09/atelier) (cuenta con GitHub, sin tarjeta).
-2. Servicio `atelier-alicorp-api`. Pega desde tu `.env` local: `DATABASE_URL`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`.
-3. `LLM_PROVIDER=live`, `SEED_DEMO_USERS=true`.
-4. Pasa la URL `https://….onrender.com` y se apunta el front. Antes de la expo abre `/health` (el plan free se duerme a los 15 min).
+El plan free de Render se duerme a los 15 min: **abre `/health` 1–2 min antes de la expo**.
 
 ## Presentación (6 slides)
 
