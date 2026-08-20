@@ -154,10 +154,6 @@ Si Supabase lo bloquea, corre eso en SQL Editor.
 
 Front en Cloudflare Workers. API en Render (`atelier_backend`, Python 3.12). El plan free se duerme a los 15 min: abre `/health` antes de la expo.
 
-## Presentación (6 slides)
-
-Abre [`docs/presentacion.html`](docs/presentacion.html) en el navegador. `←` `→` o clic para pasar.
-
 ## Límites honestos
 
 - Embeddings de retrieval son un hash local, no un modelo de embedding de red. pgvector sí persiste el vector.
