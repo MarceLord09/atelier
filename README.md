@@ -6,6 +6,15 @@ Un brief se convierte en DNA indexado. El motor creativo consulta ese manual ant
 
 Repo: [github.com/MarceLord09/atelier](https://github.com/MarceLord09/atelier)
 
+**Demo en vivo**
+
+| | |
+|---|---|
+| App | [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev) |
+| API / health | [https://atelier-alicorp-api.onrender.com/health](https://atelier-alicorp-api.onrender.com/health) |
+
+Render se duerme a los 15 min: abre `/health` 1–2 min antes de entrar.
+
 ## Mapa del reto
 
 | Módulo del PDF | En Atelier | Quién |
@@ -136,10 +145,11 @@ Si Supabase lo bloquea, corre eso en SQL Editor.
 
 ## Deploy
 
-- **App:** [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev)
-- **API / health:** [https://atelier-alicorp-api.onrender.com/health](https://atelier-alicorp-api.onrender.com/health)
+- App: [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev)
+- API: [https://atelier-alicorp-api.onrender.com](https://atelier-alicorp-api.onrender.com)
+- Health: [https://atelier-alicorp-api.onrender.com/health](https://atelier-alicorp-api.onrender.com/health)
 
-El plan free de Render se duerme a los 15 min: **abre `/health` 1–2 min antes de la expo**.
+Front en Cloudflare Workers. API en Render (`atelier_backend`, Python 3.12). El plan free se duerme a los 15 min: abre `/health` antes de la expo.
 
 ## Presentación (6 slides)
 
