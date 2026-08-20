@@ -87,11 +87,35 @@ Front: `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`
 
 ## Arquitectura
 
+Front y backend viven en carpetas distintas. Cada uno es modular (capas hexagonales). El único contrato entre ambos es HTTP + JWT.
+
+### Backend — `atelier_backend/`
+
 ```
-atelier_front/     Next.js 16 · roles, DNA, Prensa, Mesa, Visión
-atelier_backend/   FastAPI · dominio / aplicación / infra
-docs/presentacion.html
+app/
+  domain/           entidades, enums, ports  (sin FastAPI, sin SQL, sin Groq)
+  application/      casos de uso: compose, generate, audit, auth, seed
+  infrastructure/   SQLModel, pgvector, Groq, Gemini, embeddings, container
+  api/v1/           routers: auth, brands, creative, governance
+  core/             config, JWT, errores, Langfuse
 ```
+
+El servicio habla con `BrandRepository`, `Embedder`, `LlmClient`, `VisionClient` (ports). Groq o el modo `template` se enchufan en `infrastructure/` sin tocar el dominio.
+
+### Frontend — `atelier_front/`
+
+```
+features/           un módulo por mesa: dna, prensa, mesa, visión, auth
+lib/domain/         Brand, Asset, Audit, Role  (tipos, sin fetch)
+lib/application/    AuthProvider, BrandProvider
+lib/infrastructure/ clientes HTTP por bounded context (auth, brands, creative, governance)
+app/(workspace)/    rutas Next.js; páginas delgadas que montan un feature
+components/         layout, UI, proof-sheet (compartido)
+```
+
+Una pantalla no llama a `fetch` directo: pasa por `lib/infrastructure/api/*`. El dominio no sabe de Next ni de FastAPI.
+
+### Flujo de datos
 
 - Nada se genera sin DNA indexado.
 - Retrieval: embeddings locales 1536-d + `pgvector` en `brand_chunks`.

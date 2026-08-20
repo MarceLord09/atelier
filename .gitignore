@@ -12,6 +12,10 @@ __v0_jsx-dev-runtime.ts
 .env*.local
 !.env.example
 
+# Editor / snapshot leftovers (not part of the product)
+.cursor/
+/atelier/
+
 # Common ignores
 node_modules
 .next/

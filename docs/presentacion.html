@@ -41,12 +41,12 @@
     </section>
     <section class="slide">
       <span class="kicker">03 / Arquitectura</span>
-      <h1>RAG, roles <em>y un modelo por capa.</em></h1>
+      <h1>Front y API <em>modulares, por separado.</em></h1>
       <div class="grid">
-        <div class="card"><b>App</b><p>Next.js + FastAPI. Tres roles, JWT, estados Pendiente → Aprobado / Rechazado.</p></div>
-        <div class="card"><b>Datos</b><p>Supabase Postgres. Chunks del manual con pgvector para recuperar reglas, no para repetir el brief.</p></div>
-        <div class="card"><b>Texto</b><p>Groq compone el DNA y el copy. Nada se genera si el manual no está indexado.</p></div>
-        <div class="card"><b>Visión</b><p>Gemini 3.6 Flash contrasta la pieza gráfica contra el mismo manual.</p></div>
+        <div class="card"><b>Backend</b><p>FastAPI en capas: domain → application → infrastructure → api. Los ports (LLM, visión, repos) se inyectan; Groq o template no tocan el dominio.</p></div>
+        <div class="card"><b>Frontend</b><p>Next.js por features (DNA, Prensa, Mesa, Visión). Tipos en domain, providers en application, fetch solo en infrastructure.</p></div>
+        <div class="card"><b>Datos + RAG</b><p>Supabase Postgres. Chunks del manual con pgvector para recuperar reglas, no para repetir el brief.</p></div>
+        <div class="card"><b>Modelos</b><p>Groq escribe el DNA y el copy. Gemini 3.6 Flash audita la pieza gráfica contra el mismo manual.</p></div>
       </div>
     </section>
     <section class="slide">
