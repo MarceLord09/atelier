@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atelier · Content Suite · Alicorp IAGen</title>
+  <style>
+    :root { --paper:#F4EFE6; --ink:#161412; --line:#D9D1C4; --terra:#9C4A2B; --muted:#6F675C; }
+    * { box-sizing:border-box; }
+    html, body { margin:0; height:100%; background:#1A1815; color:var(--ink); font-family:Georgia, "Times New Roman", serif; }
+    .deck { height:100%; overflow:hidden; }
+    .slide {
+      display:none; height:100%; padding:8vh 10vw; background:var(--paper);
+      flex-direction:column; justify-content:center;
+    }
+    .slide.on { display:flex; }
+    .kicker { font-family:ui-sans-serif, system-ui, sans-serif; font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); }
+    h1 { font-weight:400; font-size:clamp(36px, 6vw, 72px); letter-spacing:-.04em; line-height:.95; margin:18px 0 24px; max-width:14ch; }
+    h1 em { font-style:italic; color:var(--terra); }
+    p, li { font-size:clamp(16px, 2vw, 22px); line-height:1.4; color:#2A2622; max-width:52ch; }
+    ul { padding-left:1.1em; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:28px; max-width:960px; }
+    .card { border-top:1px solid var(--line); padding-top:14px; }
+    .card b { display:block; font-family:ui-sans-serif, system-ui, sans-serif; font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:8px; }
+    nav { position:fixed; bottom:24px; right:32px; font-family:ui-sans-serif, system-ui, sans-serif; font-size:11px; letter-spacing:.12em; color:var(--muted); }
+    .foot { margin-top:40px; font-family:ui-sans-serif, system-ui, sans-serif; font-size:11px; letter-spacing:.12em; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="deck" id="deck">
+    <section class="slide on">
+      <span class="kicker">01 / El problema</span>
+      <h1>Lanzar más productos <em>sin romper la marca.</em></h1>
+      <p>En un portafolio masivo, cada ficha, guion y packshot improvisado diluye voz, paleta y promesa. El costo no es creativo: es consistencia.</p>
+      <p class="foot">Atelier · Reto técnico Alicorp IAGen</p>
+    </section>
+    <section class="slide">
+      <span class="kicker">02 / La solución</span>
+      <h1>Un taller con <em>una sola fuente de verdad.</em></h1>
+      <p>Atelier convierte un brief en DNA de marca, lo indexa, genera copy contra ese manual y deja que dos aprobadores cierren el circuito: texto en Mesa, imagen en Visión.</p>
+    </section>
+    <section class="slide">
+      <span class="kicker">03 / Arquitectura</span>
+      <h1>RAG, roles <em>y un modelo por capa.</em></h1>
+      <div class="grid">
+        <div class="card"><b>App</b><p>Next.js + FastAPI. Tres roles, JWT, estados Pendiente → Aprobado / Rechazado.</p></div>
+        <div class="card"><b>Datos</b><p>Supabase Postgres. Chunks del manual con pgvector para recuperar reglas, no para repetir el brief.</p></div>
+        <div class="card"><b>Texto</b><p>Groq compone el DNA y el copy. Nada se genera si el manual no está indexado.</p></div>
+        <div class="card"><b>Visión</b><p>Gemini 3.6 Flash contrasta la pieza gráfica contra el mismo manual.</p></div>
+      </div>
+    </section>
+    <section class="slide">
+      <span class="kicker">04 / Flujo</span>
+      <h1>Cuatro mesas. <em>Un expediente.</em></h1>
+      <ul>
+        <li>Creador: DNA y Prensa (ficha, guion, prompt de imagen).</li>
+        <li>Aprobador A: cola de Mesa, veredicto.</li>
+        <li>Aprobador B: auditoría multimodal.</li>
+        <li>Langfuse: qué se recuperó, qué prompt salió, cuánto tardó la visión.</li>
+      </ul>
+    </section>
+    <section class="slide">
+      <span class="kicker">05 / Valor al negocio</span>
+      <h1>Menos retrabajo. <em>Más control.</em></h1>
+      <p>El manual deja de ser un PDF que nadie abre. Cada pieza nace citada. La aprobación deja rastro. Marketing escala SKUs sin multiplicar deriva de marca.</p>
+    </section>
+    <section class="slide">
+      <span class="kicker">06 / Límites y demo</span>
+      <h1>Listo para <em>revisar en vivo.</em></h1>
+      <ul>
+        <li>Embeddings locales 1536-d; pgvector persiste el retrieval.</li>
+        <li>Langfuse: compose, generate (RAG) y audit (latencia).</li>
+        <li>Demo: lucia / mateo / ines @atelier.app · Atelier2026!</li>
+      </ul>
+      <p class="foot">← → para pasar · 6 / 6</p>
+    </section>
+  </div>
+  <nav id="pos">1 / 6</nav>
+  <script>
+    const slides = [...document.querySelectorAll(".slide")];
+    let i = 0;
+    const show = (n) => {
+      i = (n + slides.length) % slides.length;
+      slides.forEach((s, idx) => s.classList.toggle("on", idx === i));
+      document.getElementById("pos").textContent = `${i + 1} / ${slides.length}`;
+    };
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === " ") show(i + 1);
+      if (e.key === "ArrowLeft") show(i - 1);
+    });
+    document.addEventListener("click", () => show(i + 1));
+  </script>
+</body>
+</html>
