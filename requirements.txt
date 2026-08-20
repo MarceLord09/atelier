@@ -1,0 +1,2 @@
+# API (FastAPI). Instalar desde la raíz o desde atelier_backend/.
+-r atelier_backend/requirements.txt

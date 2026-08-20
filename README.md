@@ -49,6 +49,8 @@ Varias marcas: si el nombre del DNA cambia, se crea otra marca. El chip del mast
 
 Hace falta Python 3.12+ (3.14 también, con `sqlmodel>=0.0.32`), Node 20+, pnpm y un Postgres (Supabase sirve).
 
+Dependencias del API: [`requirements.txt`](requirements.txt) (el mismo archivo vive en `atelier_backend/`). El front usa `atelier_front/package.json`.
+
 **Backend**
 
 ```bash
