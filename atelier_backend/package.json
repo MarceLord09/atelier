@@ -1,0 +1,10 @@
+{
+  "name": "atelier-api-worker",
+  "private": true,
+  "dependencies": {
+    "@cloudflare/containers": "^0.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.108.0"
+  }
+}

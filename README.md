@@ -136,10 +136,14 @@ Si Supabase lo bloquea, corre eso en SQL Editor.
 
 ## Deploy
 
-Aún no hay URL pública. Para la demo en la nube:
+El **front** ya está público: [https://atelier.marceloperu-09.workers.dev](https://atelier.marceloperu-09.workers.dev)
 
-- **API:** Render, `render.yaml`, root `atelier_backend`. Python 3.12. Variables: `DATABASE_URL`, `JWT_SECRET`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `CORS_ORIGINS`, claves Langfuse.
-- **Front:** Vercel, root `atelier_front`. `NEXT_PUBLIC_API_URL` = URL del API.
+Cloudflare free no corre FastAPI (Containers pide plan de pago). El **API** va a Render free:
+
+1. Abre el [Blueprint](https://dashboard.render.com/blueprint/new?repo=https://github.com/MarceLord09/atelier) (cuenta con GitHub, sin tarjeta).
+2. Servicio `atelier-alicorp-api`. Pega desde tu `.env` local: `DATABASE_URL`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`.
+3. `LLM_PROVIDER=live`, `SEED_DEMO_USERS=true`.
+4. Pasa la URL `https://….onrender.com` y se apunta el front. Antes de la expo abre `/health` (el plan free se duerme a los 15 min).
 
 ## Presentación (6 slides)
 

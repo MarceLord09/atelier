@@ -1,4 +1,4 @@
-import { API_URL } from '@/lib/config'
+import { getApiUrl } from '@/lib/config'
 import { ApiError } from '@/lib/domain/errors'
 import type { Session } from '@/lib/domain/user'
 import { sessionStore } from '@/lib/infrastructure/storage/session-store'
@@ -35,7 +35,7 @@ async function refreshTokens(): Promise<boolean> {
   refreshInFlight = (async () => {
     const current = sessionStore.read()
     if (!current?.refreshToken) return false
-    const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+    const response = await fetch(`${getApiUrl()}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: current.refreshToken }),
@@ -61,7 +61,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   const { auth = true, retry = true, headers, body, ...rest } = options
   const session = sessionStore.read()
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${getApiUrl()}${path}`, {
     ...rest,
     body,
     headers: {

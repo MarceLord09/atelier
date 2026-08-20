@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: atelier-api
+    name: atelier-alicorp-api
     runtime: python
     rootDir: atelier_backend
     plan: free
