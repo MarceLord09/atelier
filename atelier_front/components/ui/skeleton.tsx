@@ -39,7 +39,7 @@ function Frame({ label, className, children }: { label: string; className?: stri
 
 export function BrandBookSkeleton() {
   return (
-    <Frame label="Componiendo el manual de marca" className="book-pages">
+    <Frame label="Cargando el manual de marca" className="book-pages">
       {[0, 1, 2].map((page) => (
         <article className="book-page skeleton-page" key={page}>
           <Bone width={28} height={8} />

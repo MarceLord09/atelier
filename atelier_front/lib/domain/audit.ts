@@ -4,6 +4,8 @@ export type Finding = {
   detail: string
   rule: string
   ok: boolean
+  x?: number | null
+  y?: number | null
 }
 
 export type Audit = {

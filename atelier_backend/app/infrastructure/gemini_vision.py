@@ -29,6 +29,8 @@ RESPONSE_SCHEMA = {
                     "detail": {"type": "string"},
                     "rule": {"type": "string"},
                     "ok": {"type": "boolean"},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
                 },
                 "required": ["n", "title", "detail", "rule", "ok"],
             },
@@ -44,6 +46,8 @@ class FindingDraft(BaseModel):
     detail: str = Field(min_length=8, max_length=500)
     rule: str = Field(min_length=3, max_length=80)
     ok: bool = False
+    x: float | None = None
+    y: float | None = None
 
 
 class AuditPayload(BaseModel):
@@ -134,19 +138,7 @@ class GeminiVisionAuditor:
                     "Gemini no devolvió un dictamen usable.",
                     code="vision_schema",
                 ) from exc
-            findings = tuple(
-                _correct_name_finding(
-                    Finding(
-                        n=index,
-                        title=item.title.strip(),
-                        detail=item.detail.strip(),
-                        rule=item.rule.strip(),
-                        ok=item.ok,
-                    ),
-                    brand,
-                )
-                for index, item in enumerate(draft.findings, start=1)
-            )
+            findings = tuple(_finding_from_draft(index, item, brand) for index, item in enumerate(draft.findings, start=1))
             passed = all(item.ok for item in findings) if findings else False
             if not findings:
                 findings = (
@@ -212,17 +204,89 @@ def _audit_prompt(brand: Brand, image_name: str, context: Sequence[Chunk]) -> st
         f"Voz no: {' / '.join(brand.voice_dont)}\n"
         f"Manual RAG:\n{manual}\n"
         "Devuelve SIEMPRE 4 findings, en este orden, cada uno con ok true/false:\n"
-        "1) Nombre de marca: ok=true si el lockup, logo o título principal es "
-        f"«{brand.name}» (mayúsculas, acento u ornamento no invalidan). "
-        "ATELIER no es la marca. Otras marcas de props (vasos, cerveza, platos) "
-        "no fallan este check si el nombre del manual está presente. "
-        f"ok=false solo si el héroe visual nombra OTRA marca en lugar de {brand.name}.\n"
-        "2) Paleta (colores dominantes vs hex del manual).\n"
+        "1) Nombre de marca: ok=true SOLO si el lockup, logo o título principal "
+        f"visible es «{brand.name}» (mayúsculas, acento u ornamento no invalidan). "
+        "ATELIER es la plataforma, nunca la marca a contrastar. "
+        "Marcas de props (vasos, cerveza, cubiertos) no fallan este check "
+        f"si el héroe visual nombra {brand.name}. "
+        f"ok=false si el logo o lockup principal es de OTRA marca "
+        f"(aunque el dictamen mencione {brand.name} como la esperada).\n"
+        "2) Paleta (colores dominantes vs hex del manual). "
+        "En detail incluye los hex del manual y 1–3 hex aproximados de la pieza.\n"
         "3) Claims y voz (promesas médicas, palabras prohibidas, tono).\n"
         "4) Área de respeto del isotipo / jerarquía tipográfica.\n"
         "passed=true SOLO si los 4 tienen ok=true. "
-        "rule como 'Regla 01 · Nombre'."
+        "rule como 'Regla 01 · Nombre'. "
+        "En cada finding, x e y son el punto 0–100 sobre la imagen: "
+        "1) centro del logo/lockup, 2) zona de color dominante, "
+        "3) texto visible o producto, 4) borde del isotipo / área de respeto."
     )
+
+
+def _finding_from_draft(index: int, item: FindingDraft, brand: Brand) -> Finding:
+    x, y = _pin_xy(item.x, item.y, title=item.title, rule=item.rule, n=index)
+    return _correct_name_finding(
+        Finding(
+            n=index,
+            title=item.title.strip(),
+            detail=item.detail.strip(),
+            rule=item.rule.strip(),
+            ok=item.ok,
+            x=x,
+            y=y,
+        ),
+        brand,
+    )
+
+
+def _normalize_pair(x: float | None, y: float | None) -> tuple[float | None, float | None]:
+    if (
+        isinstance(x, (int, float))
+        and isinstance(y, (int, float))
+        and 0 <= x <= 1
+        and 0 <= y <= 1
+    ):
+        return x * 100, y * 100
+    return x, y
+
+
+def _is_pct(value: float | None) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= float(value) <= 100
+
+
+def _pin_xy(
+    raw_x: float | None,
+    raw_y: float | None,
+    *,
+    title: str,
+    rule: str,
+    n: int,
+) -> tuple[float, float]:
+    x, y = _normalize_pair(raw_x, raw_y)
+    if _is_pct(x) and _is_pct(y):
+        return (
+            round(min(96.0, max(4.0, float(x))), 1),
+            round(min(96.0, max(4.0, float(y))), 1),
+        )
+    return _default_pin(title, rule, n)
+
+
+def _default_pin(title: str, rule: str, n: int = 0) -> tuple[float, float]:
+    blob = f"{title} {rule}".casefold()
+    if "nombre" in blob:
+        return (84.0, 16.0)
+    if "paleta" in blob or "color" in blob:
+        return (48.0, 54.0)
+    if "claim" in blob or "voz" in blob:
+        return (42.0, 70.0)
+    if "respeto" in blob or "jerarqu" in blob:
+        return (80.0, 22.0)
+    return {
+        1: (84.0, 16.0),
+        2: (48.0, 54.0),
+        3: (42.0, 70.0),
+        4: (80.0, 22.0),
+    }.get(n, (50.0, 50.0))
 
 
 def _fold(text: str) -> str:
@@ -237,13 +301,19 @@ def _correct_name_finding(finding: Finding, brand: Brand) -> Finding:
     brand_fold = _fold(brand.name)
     confused = "atelier" in folded and brand_fold != "atelier"
     named = brand_fold in folded
-    if confused and named:
+    other_lockup = any(
+        phrase in folded
+        for phrase in ("en lugar de", "en vez de", "otra marca", "no es la marca", "logotipo de")
+    )
+    if confused and named and not other_lockup:
         return Finding(
             n=finding.n,
             title=finding.title,
             detail=f"El lockup visible corresponde a {brand.name}. ATELIER es la plataforma, no la marca.",
             rule=finding.rule,
             ok=True,
+            x=finding.x,
+            y=finding.y,
         )
     if confused:
         rewritten = (
@@ -257,14 +327,8 @@ def _correct_name_finding(finding: Finding, brand: Brand) -> Finding:
             detail=rewritten,
             rule=finding.rule,
             ok=finding.ok,
-        )
-    if named and not finding.ok:
-        return Finding(
-            n=finding.n,
-            title=finding.title,
-            detail=finding.detail,
-            rule=finding.rule,
-            ok=True,
+            x=finding.x,
+            y=finding.y,
         )
     return finding
 

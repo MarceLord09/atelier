@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { Label } from '@/components/ui/label'
 import { useBrand } from '@/lib/application/brand/brand-provider'
-import type { Audit } from '@/lib/domain/audit'
+import type { Audit, Finding } from '@/lib/domain/audit'
 import { ApiError } from '@/lib/domain/errors'
 import { governanceApi } from '@/lib/infrastructure/api/governance'
 
@@ -15,8 +15,115 @@ const SCAN_STEPS = [
   'Midiendo el área de respeto',
 ]
 
+const HEX = /#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\b/g
+
+const PIN_FALLBACK: Record<number, { x: number; y: number }> = {
+  1: { x: 84, y: 16 },
+  2: { x: 48, y: 54 },
+  3: { x: 42, y: 70 },
+  4: { x: 80, y: 22 },
+}
+
 function isImageFile(file: File) {
   return ACCEPT.includes(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
+}
+
+function isPct(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
+}
+
+function pinFor(finding: Finding): { x: number; y: number } {
+  if (isPct(finding.x) && isPct(finding.y)) return { x: finding.x, y: finding.y }
+  const blob = `${finding.title} ${finding.rule}`.toLowerCase()
+  if (blob.includes('nombre')) return PIN_FALLBACK[1]
+  if (blob.includes('paleta') || blob.includes('color')) return PIN_FALLBACK[2]
+  if (blob.includes('claim') || blob.includes('voz')) return PIN_FALLBACK[3]
+  if (blob.includes('respeto') || blob.includes('jerarqu')) return PIN_FALLBACK[4]
+  return PIN_FALLBACK[finding.n] ?? { x: 50, y: 50 }
+}
+
+function pinStyle(finding: Finding): CSSProperties {
+  const pin = pinFor(finding)
+  return { left: `${pin.x}%`, top: `${pin.y}%` }
+}
+
+function isPaletteFinding(finding: Finding) {
+  const blob = `${finding.title} ${finding.rule}`.toLowerCase()
+  return blob.includes('paleta') || blob.includes('color')
+}
+
+function parseHexes(text: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const match of text.matchAll(HEX)) {
+    let value = match[0].toUpperCase()
+    if (value.length === 4) {
+      value = `#${value[1]}${value[1]}${value[2]}${value[2]}${value[3]}${value[3]}`
+    }
+    if (!seen.has(value)) {
+      seen.add(value)
+      out.push(value)
+    }
+  }
+  return out
+}
+
+function expandHex3(value: string) {
+  const hex = value.toUpperCase()
+  if (hex.length !== 4) return hex
+  return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+}
+
+function FindingDetail({ text }: { text: string }) {
+  const parts = text.split(/(#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\b)/g)
+  return (
+    <p>
+      {parts.map((part, index) =>
+        part.startsWith('#') ? (
+          <em className="hex-chip" key={`${part}-${index}`}>
+            <i style={{ background: expandHex3(part) }} />
+            {part.toUpperCase()}
+          </em>
+        ) : (
+          part
+        ),
+      )}
+    </p>
+  )
+}
+
+function FindingSwatches({ finding, manual }: { finding: Finding; manual: string[] }) {
+  if (!isPaletteFinding(finding)) return null
+  const cited = parseHexes(finding.detail)
+  const dna = manual.map(expandHex3)
+  const extras = cited.filter((color) => !dna.includes(color))
+  if (dna.length === 0 && extras.length === 0) return null
+  return (
+    <div className="finding-swatches">
+      {dna.length > 0 && (
+        <div>
+          <span>Manual</span>
+          {dna.map((color) => (
+            <em key={color} title={color}>
+              <i style={{ background: color }} />
+              {color}
+            </em>
+          ))}
+        </div>
+      )}
+      {extras.length > 0 && (
+        <div>
+          <span>En la pieza</span>
+          {extras.map((color) => (
+            <em key={color} title={color}>
+              <i style={{ background: color }} />
+              {color}
+            </em>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function useScanStep(active: boolean) {
@@ -173,28 +280,32 @@ export function VisionStage() {
             }}
           />
           {preview ? (
-            <>
+            <div className="audit-shot">
               <img
                 className={`audit-preview${loading ? ' is-scanning' : ''}`}
                 src={preview}
                 alt={audit?.image_name ?? 'Pieza en auditoría'}
               />
               {loading && <ScanOverlay step={step} />}
-              {audit && !loading && audit.findings.filter((finding) => !finding.ok).map((finding, index) => (
+              {audit && !loading && audit.findings.filter((finding) => !finding.ok).map((finding) => (
                 <button
                   className="marker"
-                  style={{
-                    left: ['66%', '30%', '72%', '22%'][index] ?? '50%',
-                    top: ['30%', '64%', '58%', '28%'][index] ?? '50%',
-                  }}
+                  style={pinStyle(finding)}
                   key={finding.n}
                   type="button"
-                  onClick={(event) => event.stopPropagation()}
+                  title={finding.title}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    document.getElementById(`audit-finding-${finding.n}`)?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'nearest',
+                    })
+                  }}
                 >
                   {finding.n}
                 </button>
               ))}
-            </>
+            </div>
           ) : (
             <>
               <div className="drop-icon">+</div>
@@ -214,9 +325,10 @@ export function VisionStage() {
                 </span>
               </div>
               {audit.findings.map((finding) => (
-                <div className={`finding${finding.ok ? ' is-ok' : ''}`} key={finding.n}>
+                <div className={`finding${finding.ok ? ' is-ok' : ''}`} id={`audit-finding-${finding.n}`} key={finding.n}>
                   <b><i>{finding.ok ? '✓' : finding.n}</i>{finding.title}</b>
-                  <p>{finding.detail}</p>
+                  <FindingDetail text={finding.detail} />
+                  <FindingSwatches finding={finding} manual={brand?.colors ?? []} />
                   <small>{finding.rule}</small>
                 </div>
               ))}

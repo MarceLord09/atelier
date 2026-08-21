@@ -15,12 +15,14 @@ function BrandSwitcher({
   brand,
   brands,
   canCreate,
+  drafting,
   onSelect,
   onCreate,
 }: {
   brand: Brand
   brands: Brand[]
   canCreate: boolean
+  drafting: boolean
   onSelect: (brandId: string) => Promise<void>
   onCreate: () => void
 }) {
@@ -49,17 +51,19 @@ function BrandSwitcher({
     <div className="brand-switch" ref={wrap}>
       <button
         type="button"
-        className="brand-chip"
+        className={`brand-chip${drafting ? ' is-draft' : ''}`}
         aria-haspopup={canOpen ? 'listbox' : undefined}
         aria-expanded={canOpen ? open : undefined}
         onClick={() => canOpen && setOpen((value) => !value)}
       >
-        <span className="brand-mark">{brandInitials(brand.name)}</span>
-        <span className="current-brand">{brand.name}</span>
-        <span className="chip-swatches" aria-hidden="true">
-          {brand.colors.map((color) => <i key={color} style={{ background: color }} />)}
-        </span>
-        <span className="rag"><span /> RAG</span>
+        <span className="brand-mark">{drafting ? '+' : brandInitials(brand.name)}</span>
+        <span className="current-brand">{drafting ? 'Nueva marca' : brand.name}</span>
+        {!drafting && (
+          <span className="chip-swatches" aria-hidden="true">
+            {brand.colors.map((color) => <i key={color} style={{ background: color }} />)}
+          </span>
+        )}
+        <span className={drafting ? 'rag idle' : 'rag'}><span /> {drafting ? 'BORRADOR' : 'RAG'}</span>
         {canOpen && <ChevronDown size={14} strokeWidth={1.75} className={open ? 'profile-caret is-open' : 'profile-caret'} />}
       </button>
       {open && (
@@ -68,8 +72,8 @@ function BrandSwitcher({
             <button
               type="button"
               role="option"
-              aria-selected={item.id === brand.id}
-              className={item.id === brand.id ? 'selected' : ''}
+              aria-selected={!drafting && item.id === brand.id}
+              className={!drafting && item.id === brand.id ? 'selected' : ''}
               key={item.id}
               onClick={() => {
                 setOpen(false)
@@ -159,13 +163,14 @@ function ProfileMenu({ user, logout }: { user: User; logout: () => Promise<void>
 
 export function Masthead({ homeHref }: { homeHref: string }) {
   const { user, logout } = useAuth()
-  const { brand, brands, loading, busy, select } = useBrand()
+  const { brand, brands, loading, busy, drafting, beginDraft, select } = useBrand()
   const router = useRouter()
-  const pending = loading || busy
+  const pending = busy || (loading && !drafting)
   const indexed = Boolean(brand?.indexed)
   const canCreate = user?.role === 'CREATOR'
 
   const startNewBrand = () => {
+    beginDraft()
     router.push('/dna?nuevo=1')
   }
 
@@ -176,14 +181,23 @@ export function Masthead({ homeHref }: { homeHref: string }) {
         <div className="brand-chip is-pending">
           <span className="current-brand">{busy ? 'Componiendo el manual…' : 'Abriendo marca…'}</span>
         </div>
-      ) : indexed && brand ? (
+      ) : (indexed && brand) || drafting ? (
+        brand ? (
         <BrandSwitcher
           brand={brand}
           brands={brands}
           canCreate={canCreate}
+          drafting={drafting}
           onSelect={select}
           onCreate={startNewBrand}
         />
+        ) : (
+          <div className="brand-chip is-draft">
+            <span className="brand-mark">+</span>
+            <span className="current-brand">Nueva marca</span>
+            <span className="rag idle"><span /> BORRADOR</span>
+          </div>
+        )
       ) : <div className="masthead-slot" aria-hidden="true" />}
       {user ? <ProfileMenu user={user} logout={logout} /> : <div className="masthead-note">CPG / 2026</div>}
     </header>

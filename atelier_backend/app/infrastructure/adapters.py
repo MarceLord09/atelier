@@ -96,6 +96,8 @@ class TemplateVisionAuditor:
                 ),
                 rule="Regla 03 · Paleta",
                 ok=False,
+                x=48.0,
+                y=54.0,
             ),
             Finding(
                 n=2,
@@ -106,6 +108,8 @@ class TemplateVisionAuditor:
                 ),
                 rule="Regla 02 · Voz",
                 ok=False,
+                x=42.0,
+                y=70.0,
             ),
         )
         passed = False

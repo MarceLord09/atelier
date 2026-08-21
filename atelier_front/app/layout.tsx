@@ -17,7 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="es" className="bg-background">
       <body className="antialiased">
-        <script src="/api-base.js" />
+        {process.env.NODE_ENV === 'production' ? <script src="/api-base.js" /> : null}
         <AppProviders>
           {children}
         </AppProviders>

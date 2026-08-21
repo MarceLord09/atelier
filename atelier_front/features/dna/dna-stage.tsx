@@ -37,23 +37,25 @@ function BrandBook({
   loading,
   compose,
   canCompose,
+  loadingCopy = 'Componiendo…',
 }: {
   brand: Brand | null
   loading: boolean
   compose: () => void
   canCompose: boolean
+  loadingCopy?: string
 }) {
   const [first, rest] = splitHeading(brand?.name ?? '')
-  const status = loading ? '● COMPONIENDO' : brand?.indexed ? '● MANUAL ACTIVO' : '○ SIN MANUAL'
+  const status = loading ? '● CARGANDO' : brand?.indexed ? '● MANUAL ACTIVO' : '○ SIN MANUAL'
   return (
-    <section className={`brand-book ${brand ? 'is-generated' : ''}`}>
+    <section className={`brand-book ${brand && !loading ? 'is-generated' : ''}`}>
       <div className="book-toolbar">
         <Label>MANUAL DE MARCA / V.01</Label>
         <span className="book-toolbar-meta">
           <span className={`module-status${brand?.indexed && !loading ? '' : ' is-idle'}`}>{status}</span>
           <span>
             {loading
-              ? 'Componiendo…'
+              ? loadingCopy
               : brand?.indexed
                 ? `Indexado en RAG · ${new Date(brand.created_at).toLocaleString('es-PE')}`
                 : 'Borrador sin indexar'}
@@ -125,7 +127,7 @@ function fillFromBrand(brand: Brand) {
 }
 
 export function DnaStage() {
-  const { brand, loading: hydrating, setBrand, setBusy, refresh } = useBrand()
+  const { brand, loading: hydrating, drafting, setBrand, setBusy, beginDraft, cancelDraft, refresh } = useBrand()
   const router = useRouter()
   const params = useSearchParams()
   const nameRef = useRef<HTMLInputElement>(null)
@@ -136,7 +138,6 @@ export function DnaStage() {
   const [promise, setPromise] = useState(seed.promise)
   const [forbidden, setForbidden] = useState(seed.forbidden)
   const [name, setName] = useState(seed.name)
-  const [drafting, setDrafting] = useState(false)
   const [composing, setComposing] = useState(false)
   const [error, setError] = useState('')
   const loading = hydrating || composing
@@ -152,11 +153,11 @@ export function DnaStage() {
   }
 
   const startNew = useCallback(() => {
-    setDrafting(true)
+    beginDraft()
     setError('')
     applyBrief(EMPTY_BRIEF)
     window.setTimeout(() => nameRef.current?.focus(), 0)
-  }, [])
+  }, [beginDraft])
 
   useEffect(() => {
     if (!brand || drafting) return
@@ -182,7 +183,7 @@ export function DnaStage() {
         promise,
         forbidden: forbidden.split(',').map((word) => word.trim()).filter(Boolean),
       })
-      setDrafting(false)
+      cancelDraft()
       setBrand(next)
       await refresh()
     } catch (err) {
@@ -217,6 +218,7 @@ export function DnaStage() {
               ref={nameRef}
               value={name}
               placeholder="Ej. Blanca Flor"
+              disabled={loading}
               onChange={(event) => setName(event.target.value)}
             />
           </div>
@@ -225,6 +227,7 @@ export function DnaStage() {
             <input
               value={product}
               placeholder="Ej. panetones premium con pasas y frutas"
+              disabled={loading}
               onChange={(event) => setProduct(event.target.value)}
             />
           </div>
@@ -233,6 +236,7 @@ export function DnaStage() {
             <input
               value={audience}
               placeholder="Quién va a usar o comprar esto"
+              disabled={loading}
               onChange={(event) => setAudience(event.target.value)}
             />
           </div>
@@ -240,7 +244,7 @@ export function DnaStage() {
             <label>Tono</label>
             <div className="chips">
               {TONES.map((item) => (
-                <button type="button" key={item} className={tone === item ? 'selected' : ''} onClick={() => setTone(item)}>{item}</button>
+                <button type="button" key={item} className={tone === item ? 'selected' : ''} disabled={loading} onClick={() => setTone(item)}>{item}</button>
               ))}
             </div>
           </div>
@@ -249,6 +253,7 @@ export function DnaStage() {
             <textarea
               value={promise}
               placeholder="La promesa que el copy puede repetir"
+              disabled={loading}
               onChange={(event) => setPromise(event.target.value)}
             />
           </div>
@@ -257,6 +262,7 @@ export function DnaStage() {
             <input
               value={forbidden}
               placeholder="harina, horneado"
+              disabled={loading}
               onChange={(event) => setForbidden(event.target.value)}
             />
           </div>
@@ -271,7 +277,7 @@ export function DnaStage() {
               <Button
                 variant="quiet"
                 onClick={() => {
-                  setDrafting(false)
+                  cancelDraft()
                   applyBrief(fillFromBrand(brand))
                   setError('')
                 }}
@@ -295,6 +301,7 @@ export function DnaStage() {
       <BrandBook
         brand={drafting ? null : brand}
         loading={loading}
+        loadingCopy={composing ? 'Componiendo…' : 'Cargando marca…'}
         compose={() => void compose()}
         canCompose={!loading && Boolean(name.trim() && product.trim() && audience.trim() && promise.trim())}
       />

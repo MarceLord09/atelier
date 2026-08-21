@@ -148,6 +148,8 @@ class FindingResponse(BaseModel):
     detail: str
     rule: str
     ok: bool = False
+    x: float | None = None
+    y: float | None = None
 
 
 class AuditResponse(BaseModel):

@@ -48,3 +48,42 @@ def test_name_check_does_not_confuse_atelier_with_brand():
     assert fixed.ok is True
     assert "ATELIER" not in fixed.detail or "plataforma" in fixed.detail.casefold()
     assert "Primitivo" in fixed.detail
+
+
+def test_name_check_keeps_fail_when_other_brand_is_the_hero():
+    brand = Brand(
+        id=uuid4(),
+        name="Primitivo",
+        product="Alitas",
+        audience="Bar",
+        tone="cercano",
+        promise="Sabor",
+        manifesto="Sabor",
+        forbidden=(),
+        colors=("#000000",),
+        voice_do=(),
+        voice_dont=(),
+        created_by=uuid4(),
+        indexed_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+    )
+    finding = Finding(
+        n=1,
+        title="Nombre de marca",
+        detail="La imagen incluye el logotipo de Blanca Flor en lugar de mostrar la marca activa Primitivo.",
+        rule="Regla 01 · Nombre",
+        ok=False,
+    )
+    fixed = _correct_name_finding(finding, brand)
+    assert fixed.ok is False
+
+
+def test_pin_xy_uses_model_coords_and_falls_back_by_title():
+    from app.infrastructure.gemini_vision import _pin_xy
+
+    placed = _pin_xy(82, 14, title="Nombre de marca", rule="Regla 01 · Nombre", n=1)
+    assert placed == (82.0, 14.0)
+    fallback = _pin_xy(None, None, title="Nombre de marca", rule="Regla 01 · Nombre", n=1)
+    assert fallback == (84.0, 16.0)
+    scaled = _pin_xy(0.8, 0.2, title="Nombre de marca", rule="Regla 01 · Nombre", n=1)
+    assert scaled == (80.0, 20.0)

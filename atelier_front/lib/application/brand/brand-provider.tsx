@@ -11,8 +11,11 @@ type BrandContextValue = {
   brands: Brand[]
   loading: boolean
   busy: boolean
+  drafting: boolean
   setBrand: (brand: Brand | null) => void
   setBusy: (busy: boolean) => void
+  beginDraft: () => void
+  cancelDraft: () => void
   refresh: () => Promise<void>
   select: (brandId: string) => Promise<void>
 }
@@ -25,11 +28,16 @@ export function BrandProvider({ children }: { children: ReactNode }) {
   const [brands, setBrands] = useState<Brand[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [drafting, setDrafting] = useState(false)
+
+  const beginDraft = useCallback(() => setDrafting(true), [])
+  const cancelDraft = useCallback(() => setDrafting(false), [])
 
   const refresh = useCallback(async () => {
     if (!user) {
       setBrand(null)
       setBrands([])
+      setDrafting(false)
       setLoading(false)
       return
     }
@@ -49,11 +57,20 @@ export function BrandProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   const select = useCallback(async (brandId: string) => {
-    const next = await brandsApi.activate(brandId)
-    setBrand(next)
-    setBrands((current) =>
-      current.map((item) => ({ ...item, current: item.id === next.id })),
-    )
+    setDrafting(false)
+    setLoading(true)
+    const started = Date.now()
+    try {
+      const next = await brandsApi.activate(brandId)
+      const wait = 360 - (Date.now() - started)
+      if (wait > 0) await new Promise((resolve) => window.setTimeout(resolve, wait))
+      setBrand(next)
+      setBrands((current) =>
+        current.map((item) => ({ ...item, current: item.id === next.id })),
+      )
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -62,8 +79,20 @@ export function BrandProvider({ children }: { children: ReactNode }) {
   }, [ready, refresh])
 
   const value = useMemo(
-    () => ({ brand, brands, loading, busy, setBrand, setBusy, refresh, select }),
-    [brand, brands, loading, busy, refresh, select],
+    () => ({
+      brand,
+      brands,
+      loading,
+      busy,
+      drafting,
+      setBrand,
+      setBusy,
+      beginDraft,
+      cancelDraft,
+      refresh,
+      select,
+    }),
+    [brand, brands, loading, busy, drafting, beginDraft, cancelDraft, refresh, select],
   )
 
   return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>

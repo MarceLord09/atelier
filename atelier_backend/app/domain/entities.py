@@ -91,6 +91,8 @@ class Finding:
     detail: str
     rule: str
     ok: bool = False
+    x: float | None = None
+    y: float | None = None
 
 
 @dataclass(frozen=True)

@@ -346,6 +346,8 @@ def _to_audit(row: AuditRow) -> Audit:
             detail=str(item["detail"]),
             rule=str(item["rule"]),
             ok=bool(item.get("ok", False)),
+            x=_optional_pct(item.get("x")),
+            y=_optional_pct(item.get("y")),
         )
         for item in (row.findings or [])
     )
@@ -359,6 +361,14 @@ def _to_audit(row: AuditRow) -> Audit:
         created_at=row.created_at,
         image_name=row.image_name,
     )
+
+
+def _optional_pct(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if 0 <= float(value) <= 100:
+        return float(value)
+    return None
 
 
 def _is_postgres(session: AsyncSession) -> bool:
